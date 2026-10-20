@@ -13,7 +13,7 @@
 Vio keeps the parts that make a small service quick to build and quick to ship, and drops the parts that only pay off at scale. It is meant for services with **modest traffic**, **low security requirements**, and **a deadline**: internal tools, admin panels, small APIs, webhooks, prototypes, and side services behind a trusted network.
 
 - **Filesystem routing**: The file path IS the URL path. Drop a `.ts` file, and it becomes an API endpoint.
-- **Lazy loading with hot reload**: Handlers load on demand and reload when the file's `mtime` changes. No build step, no route registration, no restart.
+- **Lazy loading with hot reload**: Handlers are re-read from disk on every request. No build step, no route registration, no restart.
 - **Static file serving**: Non-API files are served as static resources with automatic content-type detection.
 - **Built-in middleware system**: Sequential middleware execution with timeout support.
 - **HTTP exceptions**: Typed exception classes for clean error handling.
@@ -49,7 +49,7 @@ Vio is a lean branch, not a rewrite:
 | Options               | —                          | Identical                                 |
 | Daemon supervisor     | `launchDaemon` exported    | Removed — use pm2, systemd, or container  |
 | Process model         | Single process             | Single process                            |
-| Hot reload            | Lazy, mtime-based          | Same                                      |
+| Hot reload            | Lazy, mtime-based          | Lazy, uncached — re-read per request      |
 
 Everything documented below applies to both, unless noted otherwise.
 
@@ -310,16 +310,16 @@ Known content types: `.html`, `.css`, `.js`, `.json`, `.png`, `.jpg`, `.jpeg`, `
 Fluxion Vio uses a **lazy loading** strategy:
 
 - Files are loaded on demand when a request arrives.
-- The module is cached in memory; subsequent requests use the cached version.
-- If the file's `mtime` has changed, the module is automatically reloaded.
+- No module cache: every request re-reads the file from disk. `require.cache` is cleared first, so the module and its import chain are re-evaluated.
 - If the file is deleted, the module is disposed and subsequent requests return `404`.
-- No file watcher runs at runtime — zero overhead when files are stable.
+- No file watcher runs at runtime.
 
 This means:
 
 - **Fast startup**: No initial file scanning.
-- **Automatic hot-reload**: Edit a file, and the next request picks up the change.
+- **Automatic hot-reload**: Edit a file, and the next request picks up the change — even with the same `mtime`.
 - **No watcher overhead**: No CPU/memory usage for file watching.
+- **Slower requests**: Each API request pays a `require()` cost; fine for low-traffic services, not for high throughput.
 
 Reason:
 

@@ -64,10 +64,7 @@ export class FluxionRouter extends FluxionRouterBase {
       return undefined;
     }
 
-    if (cached?.mtimeMs === stat.mtimeMs) {
-      return cached;
-    }
-
+    // No module cache: every request re-reads the file and re-evaluates its import chain.
     return this.register(absolutePath, relativePath, stat);
   }
 }

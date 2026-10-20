@@ -115,14 +115,12 @@ function createFileSink(logFilePath: string): (entry: LogEntry) => void {
  * & Logger Options here is checked by normalizeOptions function.
  */
 function resolveLoggerSink(cx: Pick<FluxionContext, 'options'>): FluxionLoggerFn {
-  // 检查是否设置了 FLUXION_INSTANCE_LOG 环境变量
   const instanceLogPath = process.env.FLUXION_INSTANCE_LOG;
   const fileSink = instanceLogPath ? createFileSink(instanceLogPath) : null;
 
   const loggerOption = cx.options.logger;
   if (loggerOption === undefined || loggerOption === 'one-line') {
     if (fileSink) {
-      // 同时输出到控制台和文件
       return (entry: LogEntry) => {
         oneLineLogger(entry);
         fileSink(entry);

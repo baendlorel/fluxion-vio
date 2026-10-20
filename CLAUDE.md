@@ -1,3 +1,5 @@
-这是一个类似php的热重载服务器库，名为fluxion
-启动的实例成为fluxion实例
-功能变更需同步更新instruction.md
+这是一个类似php的热重载服务器库，名为fluxion-vio
+
+fluxionvio是fluxion的一个分支，vio是violent的意思
+
+它不再存储任何缓存，而是全部直接load

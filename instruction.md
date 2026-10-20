@@ -23,7 +23,7 @@
 
 Fluxion Vio is a Node.js server framework with these core concepts:
 
-- **Lazy loading**: API handler modules are loaded on demand when requests arrive. No file watcher runs at runtime — zero overhead when files are stable.
+- **Lazy loading**: API handler modules are read from disk on every request — no module cache, no file watcher. Edits take effect immediately.
 - **Filesystem routing**: files under a `dir` directory become HTTP routes. The file path IS the URL path.
 - **Single-process architecture**: Fluxion Vio runs as a single process. Vio has no built-in clustering or daemon supervisor; use pm2, docker, systemd, or kubernetes when you need more.
 - **API handlers**: TypeScript/JavaScript files matching `apiInclude` patterns (default: `**/*.ts`) are loaded as handler modules.
@@ -464,15 +464,14 @@ await fluxion({
 
 ### Lazy loading behavior
 
-Fluxion Vio's lazy router caches modules on first request. Subsequent requests use the cached version:
+Fluxion Vio does **not** cache modules. Every request re-reads the handler file from disk. The whole `require.cache` is cleared before loading, so the module and all of its imports are re-evaluated:
 
 ```ts
 // File: dynamic/counter.ts
 export default defineFluxionModule(async () => {
   return { value: Math.random() };
 });
-// Multiple requests to /counter.ts return the SAME value
-// until the file is modified (mtime change triggers reload)
+// Every request to /counter.ts returns a NEW value
 ```
 
 ---
@@ -498,7 +497,7 @@ export default defineFluxionModule(async () => {
   export default async (req) => { return { ok: true }; };
   ```
 - ❌ **Don't use `console.log`** in handlers — use `cx.logger` for structured, timestamped logs.
-- ❌ **Don't store state in handler modules** — files are hot-reloaded, so module-level state is lost on file change. Use external stores (Redis, database, etc.).
+- ❌ **Don't store state in handler modules** — files are re-read on every request, so module-level state is reset each time. Use external stores (Redis, database, etc.).
 - ❌ **Don't use `GET`/`HEAD` for body-dependent logic** — body is not parsed for these methods.
 - ❌ **Don't forget file extension in URL** — `/hello.ts` not `/hello`. The extension IS part of the route.
 - ❌ **Don't use the `include` option** — it has been renamed to `apiInclude`/`staticInclude`. Passing `include` will throw an error.
@@ -509,13 +508,12 @@ When a file changes, the module is reloaded. Any module-level variables (caches,
 
 ### Lazy loading lifecycle
 
-Fluxion Vio uses a lazy loading strategy:
+Fluxion Vio uses a lazy loading strategy with **no module cache**:
 
-1. **First request**: Module is loaded from disk, parsed, and cached in memory.
-2. **Subsequent requests**: Cached module is returned if `mtime` is unchanged.
-3. **File modification**: Changed `mtime` triggers a reload on the next request. The module and its whole import chain (every file listed in `require.cache[...].children`, recursively) are evicted from `require.cache` first, so dependencies are re-evaluated too. Packages under `node_modules` are not evicted.
-4. **File deletion**: Module is disposed (calling `disposer` if set) and removed from cache. Subsequent requests return `404`.
-5. **File re-creation**: After deletion, if the file is recreated, it will be re-registered on the next request.
+1. **Every request**: the router clears `require.cache` entirely, then loads the module from disk. The module and its whole import chain are re-evaluated.
+2. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
+3. **File deletion**: module is disposed (calling `disposer` if set) and removed from the route table. Subsequent requests return `404`.
+4. **File re-creation**: after deletion, if the file is recreated, it will be re-registered on the next request.
 
 ### Security features
 

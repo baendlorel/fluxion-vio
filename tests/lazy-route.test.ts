@@ -91,8 +91,8 @@ describe('lazy route — empty start', () => {
   });
 });
 
-describe('lazy route — cache behavior', () => {
-  test('returns cached module when mtimeMs is unchanged', async () => {
+describe('lazy route — no cache', () => {
+  test('loads a fresh module on every get()', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
@@ -105,16 +105,17 @@ describe('lazy route — cache behavior', () => {
     expect(module1).toBeDefined();
     expect(module1!.handler).toBeTypeOf('function');
 
-    // GET via lazy router — returns the same module (cached, mtime matches)
+    // GET via lazy router — re-reads the file, so a new module object each time
     const get1 = await cx.router.get(new URL('http://local/greeting.ts'));
-    expect(get1).toBe(module1); // same reference = cached
+    expect(get1).toBeDefined();
+    expect(get1).not.toBe(module1);
 
-    // GET again — still cached because mtimeMs matches
     const get2 = await cx.router.get(new URL('http://local/greeting.ts'));
-    expect(get2).toBe(module1);
+    expect(get2).toBeDefined();
+    expect(get2).not.toBe(get1);
   });
 
-  test('reloads module when mtimeMs changes', async () => {
+  test('picks up file changes without an mtime comparison', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
@@ -129,12 +130,11 @@ describe('lazy route — cache behavior', () => {
       body: { value: 1 },
     });
 
-    // Update file content (changes mtime)
-    await new Promise((r) => setTimeout(r, 100)); // ensure distinct mtime
+    // Update file content
     writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 2 }) };\n');
     const stat2 = fs.statSync(path.join(dir, 'counter.ts'));
 
-    // GET triggers lazy reload because mtime differs
+    // GET re-reads the file from disk
     const module2 = await cx.router.get(new URL('http://local/counter.ts'));
     expect(module2).toBeDefined();
     expect(module2!.mtimeMs).toBe(stat2.mtimeMs);
@@ -146,20 +146,21 @@ describe('lazy route — cache behavior', () => {
     });
   });
 
-  test('multiple GET calls with same mtime return the same cached module instance', async () => {
+  test('re-evaluates module state on every request', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
     writeApi(dir, 'cachecheck.ts', 'exports.default = { type: 0, handler: () => ({ n: Math.random() }) };\n');
     await register(cx, 'cachecheck.ts', fs.statSync(path.join(dir, 'cachecheck.ts')));
 
-    // get() should return the same module reference (not re-loaded)
+    // get() re-reads the module every time, so references never match
     const m1 = await cx.router.get(new URL('http://local/cachecheck.ts'));
     const m2 = await cx.router.get(new URL('http://local/cachecheck.ts'));
     const m3 = await cx.router.get(new URL('http://local/cachecheck.ts'));
 
-    expect(m1).toBe(m2);
-    expect(m2).toBe(m3);
+    expect(m1).toBeDefined();
+    expect(m1).not.toBe(m2);
+    expect(m2).not.toBe(m3);
   });
 });
 
