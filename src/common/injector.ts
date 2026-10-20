@@ -1,3 +1,4 @@
+import { FluxionError } from './error.js';
 import type { FluxionContext, NormalizedModule } from '@/types.js';
 import { Stats } from 'node:fs';
 import { static_cast } from 'type-narrow';
@@ -69,7 +70,9 @@ export function loadFluxionModule(
     m = m.default;
   } else if (isFluxionModule(cx, m)) {
   } else {
-    throw new Error(`Invalid handler module '${absolutePath}', make sure it satisfies defineFluxionModule(...) helper`);
+    throw new FluxionError(
+      `Invalid handler module '${absolutePath}', make sure it satisfies defineFluxionModule(...) helper`,
+    );
   }
 
   m.absolutePath = absolutePath;

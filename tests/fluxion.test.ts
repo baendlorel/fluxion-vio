@@ -1,3 +1,7 @@
+import type { FluxionContext, FluxionOptions } from '../src/types.js';
+import type http from 'node:http';
+import type https from 'node:https';
+
 import { afterAll, describe, expect, test } from 'vitest';
 import fs, { Stats } from 'node:fs';
 import os from 'node:os';
@@ -7,13 +11,6 @@ import { defineFluxionOptions } from '../src/defines/options.js';
 import { createLogger } from '../src/common/logger.js';
 import { createServer } from '../src/http/server.js';
 import { ModuleType } from '../src/common/consts.js';
-import type { FluxionContext, FluxionOptions } from '../src/types.js';
-import type http from 'node:http';
-import type https from 'node:https';
-
-globalThis._throw = (message: string): never => {
-  throw new Error('[fluxion error]' + message);
-};
 
 const servers: Array<http.Server | https.Server> = [];
 const tempRoots: string[] = [];

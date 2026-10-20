@@ -1,11 +1,10 @@
 import type { FluxionContext, FluxionOptions, NormalizedFluxionOptions } from './types.js';
 
 import { createLogger } from './common/logger.js';
-import { flags.OptionsNormalized } from './common/consts.js';
+import { flags } from './common/consts.js';
 import { defineFluxionOptions } from './defines/options.js';
 import { createServer } from './http/server.js';
 import { FluxionRouter } from './router/index.js';
-import { DependencyWatcher } from './watcher/dep-watcher.class.js';
 
 /**
  * Creates a fluxion-vio server instance.
@@ -20,8 +19,6 @@ export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions
 
   // Start HTTP server
   const server = await createServer(context);
-
-  context.depWatcher = new DependencyWatcher(context.options);
 
   // Register signal handlers for graceful shutdown
   const shutdown = (signal: NodeJS.Signals) => {

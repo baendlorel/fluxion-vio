@@ -1,3 +1,4 @@
+import { FluxionError } from '@/common/error.js';
 import type {
   FluxionHandler,
   FluxionDisposer,
@@ -26,32 +27,34 @@ export function defineFluxionModule(
 ): FluxionModuleObject {
   if (typeof a === 'function') {
     if (disposer !== undefined && typeof disposer !== 'function') {
-      _throw(`Invalid disposer, expected a function but got ${typeof disposer}`);
+      throw new FluxionError(`Invalid disposer, expected a function but got ${typeof disposer}`);
     }
     return { handler: a, disposer, type: ModuleType.Api };
   }
 
   if (typeof a !== 'object' || a === null) {
-    _throw(`Invalid argument, expected a FluxionModule object or a handler function, but got ${typeof a}`);
+    throw new FluxionError(
+      `Invalid argument, expected a FluxionModule object or a handler function, but got ${typeof a}`,
+    );
   }
 
   if (typeof a.handler !== 'function') {
-    _throw(`Invalid FluxionModule, "handler" must be a function`);
+    throw new FluxionError(`Invalid FluxionModule, "handler" must be a function`);
   }
 
   if (a.disposer !== undefined && typeof a.disposer !== 'function') {
-    _throw(`Invalid FluxionModule, "disposer" must be a function if provided`);
+    throw new FluxionError(`Invalid FluxionModule, "disposer" must be a function if provided`);
   }
 
   if (a.methods !== undefined && (!Array.isArray(a.methods) || a.methods.some((v) => typeof v !== 'string'))) {
-    _throw(`Invalid FluxionModule, "methods" must be an array of strings if provided`);
+    throw new FluxionError(`Invalid FluxionModule, "methods" must be an array of strings if provided`);
   }
 
   if (
     a.middlewares !== undefined &&
     (!Array.isArray(a.middlewares) || a.middlewares.some((v) => typeof v !== 'function'))
   ) {
-    _throw(`Invalid FluxionModule, "middlewares" must be an array of functions if provided`);
+    throw new FluxionError(`Invalid FluxionModule, "middlewares" must be an array of functions if provided`);
   }
 
   return { ...a, type: ModuleType.Api };
@@ -59,14 +62,14 @@ export function defineFluxionModule(
 
 export function defineFluxionMiddleware(middleware: FluxionMiddleware): FluxionMiddleware {
   if (typeof middleware !== 'function') {
-    _throw(`Invalid FluxionMiddleware, expected a function but got ${typeof middleware}`);
+    throw new FluxionError(`Invalid FluxionMiddleware, expected a function but got ${typeof middleware}`);
   }
   return middleware;
 }
 
 export function defineFluxionLogger(loggerFn: FluxionLoggerFn) {
   if (typeof loggerFn !== 'function') {
-    _throw(`Invalid FluxionLoggerFn, expected a function but got ${typeof loggerFn}`);
+    throw new FluxionError(`Invalid FluxionLoggerFn, expected a function but got ${typeof loggerFn}`);
   }
   return loggerFn;
 }
