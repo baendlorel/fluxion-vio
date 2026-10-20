@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import { ModuleType, STATIC_CONTENT_TYPES, flags } from '@/common/consts.js';
-import { loadFluxionModule } from '@/common/injector.js';
+import { loadFluxionModule, purgeRequireCache } from '@/common/injector.js';
 
 /**
  * Resolve a request URL to the module that should handle it.
@@ -36,10 +36,12 @@ export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): Fl
 
     // API handlers are re-read from disk on every request
     if (cx.options.apiInclude.some((p) => minimatch(relativePath, p))) {
+      purgeRequireCache();
       return loadFluxionModule(cx, absolutePath, stat);
     }
 
     if (cx.options.staticInclude.some((p) => minimatch(relativePath, p))) {
+      purgeRequireCache();
       return makeStaticResource(absolutePath);
     }
 

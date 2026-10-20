@@ -310,7 +310,7 @@ Known content types: `.html`, `.css`, `.js`, `.json`, `.png`, `.jpg`, `.jpeg`, `
 Fluxion Vio uses a **lazy loading** strategy:
 
 - Files are loaded on demand when a request arrives.
-- No module cache: every request re-reads the file from disk. `require.cache` is cleared first, so the module and its import chain are re-evaluated.
+- No module cache: every request re-reads the file from disk. `require.cache` is cleared once per request, before the path is resolved, so the module and its import chain are re-evaluated.
 - If the file is deleted, subsequent requests return `404` — there is no route table to update.
 - No file watcher runs at runtime.
 

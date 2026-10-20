@@ -37,8 +37,9 @@ function isFluxionModule(cx: Pick<FluxionContext, 'options' | 'logger'>, o: unkn
 
 /**
  * Drop every entry in require cache, so the next require re-reads all files from disk.
+ * Call it once per request, before resolving anything, rather than once per module load.
  */
-function purgeRequireCache() {
+export function purgeRequireCache() {
   for (const id of Object.keys(require.cache)) {
     delete require.cache[id];
   }
@@ -49,7 +50,6 @@ export function loadFluxionModule(
   absolutePath: string,
   stat: Stats,
 ): NormalizedModule {
-  purgeRequireCache();
   let m = require(absolutePath);
   if (isFluxionModule(cx, m.default)) {
     m = m.default;

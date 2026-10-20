@@ -510,7 +510,7 @@ When a file changes, the module is reloaded. Any module-level variables (caches,
 
 Fluxion Vio uses a lazy loading strategy with **no module cache**:
 
-1. **Every request**: the router clears `require.cache` entirely, then loads the module from disk. The module and its whole import chain are re-evaluated.
+1. **Every request**: the router clears `require.cache` entirely once, before resolving the path — whether the target turns out to be an API module or a static file. Loading happens after the purge, so the module and its whole import chain are re-evaluated.
 2. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
 3. **File deletion**: the path no longer exists on disk, so subsequent requests return `404` — there is no route table to clean up.
 4. **File re-creation**: the recreated file is served immediately on the next request, with no registration step.
