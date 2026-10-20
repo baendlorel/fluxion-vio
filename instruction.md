@@ -153,7 +153,7 @@ export default defineFluxionModule({
   methods: ['GET', 'POST'],           // Restrict allowed HTTP methods
   handlerTimeoutMs: 10_000,           // Per-handler timeout override
   disposer: async () => {
-    // Cleanup when this file is removed or server shuts down
+    // Runs after the response for this request has been sent
   },
 });
 ```
@@ -485,7 +485,7 @@ export default defineFluxionModule(async () => {
 - ✅ **Use `req.meta`** to pass data between middleware and handler.
 - ✅ **Throw HTTP exceptions** (e.g., `NotFoundException`) for error responses.
 - ✅ **Check `rawRes.writableEnded`** before writing to raw response if middleware might have ended it.
-- ✅ **Use `disposer`** for cleanup (database connections, file handles, timers).
+- ✅ **Use `disposer`** for cleanup (database connections, file handles, timers). It runs after the response has been sent; omit it when there is nothing to clean up.
 - ✅ **Restrict `methods`** when an endpoint should only accept specific HTTP methods.
 - ✅ **Install `tsx`** for TypeScript hot-reload in development.
 
@@ -512,7 +512,7 @@ Fluxion Vio uses a lazy loading strategy with **no module cache**:
 
 1. **Every request**: the router clears `require.cache` entirely, then loads the module from disk. The module and its whole import chain are re-evaluated.
 2. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
-3. **File deletion**: module is disposed (calling `disposer` if set) and removed from the route table. Subsequent requests return `404`.
+3. **File deletion**: the route is removed from the route table and subsequent requests return `404`.
 4. **File re-creation**: after deletion, if the file is recreated, it will be re-registered on the next request.
 
 ### Security features

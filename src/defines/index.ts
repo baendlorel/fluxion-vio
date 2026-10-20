@@ -14,7 +14,7 @@ export { defineFluxionOptions } from './options.js';
 /**
  * Use handler function and optional disposer function to define a Fluxion module.
  * @param handler Main function that handles request and response instances
- * @param disposer Deal with resource cleanup when the server is about to close
+ * @param disposer Deal with resource cleanup once the response has been sent. Optional.
  */
 export function defineFluxionModule(handler: FluxionHandler, disposer?: FluxionDisposer): FluxionModuleObject;
 /**

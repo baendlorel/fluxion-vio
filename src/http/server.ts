@@ -1,7 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 
-import type { FluxionContext, FluxionModuleContext, FluxionRequest } from '../types.js';
+import type { FluxionContext, FluxionModuleContext, FluxionRequest, NormalizedModule } from '../types.js';
 import { HttpCode, flags, ModuleType } from '@/common/consts.js';
 import { PromiseTry } from '@/common/promise-try.js';
 import { getErrorMessage } from '@/common/logger.js';
@@ -16,6 +16,23 @@ import { HttpException } from './exceptions.js';
 
 const waiter = (mainPromise: Promise<any>, timeoutMs: number, flag: symbol) =>
   Promise.race([mainPromise, new Promise((r) => setTimeout(() => r(flag), timeoutMs))]);
+
+/**
+ * Run a module's disposer once the response has been sent.
+ * Modules without a disposer are left untouched.
+ */
+function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: NormalizedModule) {
+  // Each request loads its own module instance, so the disposer must run for this instance only.
+  if (typeof m.disposer !== 'function') {
+    return;
+  }
+  const disposer = m.disposer;
+  res.once('close', () => {
+    PromiseTry(disposer).catch((e: unknown) => {
+      cx.logger.error({ message: 'DisposerFailed', url: m.absolutePath, error: getErrorMessage(e) });
+    });
+  });
+}
 
 export function createServer(cx: FluxionContext): Promise<http.Server | https.Server> {
   const moduleCx: FluxionModuleContext = Object.freeze({ logger: cx.logger });
@@ -97,6 +114,9 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
         safeSendJson(res, { message: 'Method Not Allowed' }, HttpCode.MethodNotAllowed);
         return;
       }
+
+      // Clean up this request's module instance after the response is sent.
+      disposeAfterResponse(cx, res, m);
 
       const timeoutMs =
         m.type === ModuleType.Api

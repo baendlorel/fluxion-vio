@@ -173,7 +173,7 @@ export default defineFluxionModule({
   methods: ['GET', 'POST'],
   handlerTimeoutMs: 10000,
   disposer: async () => {
-    // Cleanup when file is removed or server shuts down
+    // Runs after the response for this request has been sent
   },
 });
 ```
@@ -186,7 +186,7 @@ interface FluxionModule {
   middlewares?: FluxionMiddleware[];  // Optional: middleware array
   methods?: HTTPMethod[];            // Optional: allowed HTTP methods (default: all)
   handlerTimeoutMs?: number;         // Optional: handler timeout override
-  disposer?: FluxionDisposer;         // Optional: cleanup function
+  disposer?: FluxionDisposer;        // Optional: runs after the response is sent
 }
 ```
 
@@ -311,7 +311,7 @@ Fluxion Vio uses a **lazy loading** strategy:
 
 - Files are loaded on demand when a request arrives.
 - No module cache: every request re-reads the file from disk. `require.cache` is cleared first, so the module and its import chain are re-evaluated.
-- If the file is deleted, the module is disposed and subsequent requests return `404`.
+- If the file is deleted, the route is removed and subsequent requests return `404`.
 - No file watcher runs at runtime.
 
 This means:

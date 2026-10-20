@@ -4,7 +4,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import { loadFluxionModule } from '@/common/injector.js';
-import { PromiseTry } from '@/common/promise-try.js';
 
 import { FluxionRouterBase } from './base.js';
 
@@ -52,15 +51,11 @@ export class FluxionRouter extends FluxionRouterBase {
       return undefined;
     }
 
-    const cached = this.handlers.get(relativePath);
     const stat = await fs.stat(absolutePath).catch(() => undefined);
 
     // File does not exist or is not a file, returns undefined.
     if (!stat || !stat.isFile()) {
-      if (cached?.disposer) {
-        this.handlers.delete(relativePath);
-        await PromiseTry(cached.disposer);
-      }
+      this.handlers.delete(relativePath);
       return undefined;
     }
 

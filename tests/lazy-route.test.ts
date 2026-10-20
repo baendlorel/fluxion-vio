@@ -164,8 +164,8 @@ describe('lazy route — no cache', () => {
   });
 });
 
-describe('lazy route — disposal on deletion', () => {
-  test('disposes handler when file is deleted and triggers get()', async () => {
+describe('lazy route — disposer', () => {
+  test('runs disposer after the response is sent', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
@@ -178,34 +178,20 @@ describe('lazy route — disposal on deletion', () => {
         disposer: () => { (globalThis as any).__lazy_disposed = true; },
       };\n`,
     );
-    await register(cx, 'disposable.ts', fs.statSync(path.join(dir, 'disposable.ts')));
-
     await startWorkerServer(cx);
 
-    // Confirm it works
+    expect((globalThis as any).__lazy_disposed).toBe(false);
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/disposable.ts`)).toEqual({
       status: 200,
       body: { status: 'alive' },
     });
 
-    // Delete the file
-    fs.rmSync(path.join(dir, 'disposable.ts'));
-
-    // Trigger lazy check — GET should detect the file is gone
-    const result = await cx.router.get(new URL('http://local/disposable.ts'));
-    expect(result).toBeUndefined();
-
-    // Disposer should have been called
+    // `close` fires after the response has been flushed
+    await new Promise((r) => setTimeout(r, 50));
     expect((globalThis as any).__lazy_disposed).toBe(true);
-
-    // HTTP request should return 404
-    expect(await requestJson(`http://127.0.0.1:${cx.options.port}/disposable.ts`)).toEqual({
-      status: 404,
-      body: { message: 'Not Found' },
-    });
   });
 
-  test('disposes and re-registers when file is replaced (deleted + recreated)', async () => {
+  test('runs the disposer of every request instance', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
@@ -218,41 +204,31 @@ describe('lazy route — disposal on deletion', () => {
         disposer: () => { (globalThis as any).__lazy_dispose_count++; },
       };\n`,
     );
-    await register(cx, 'replace.ts', fs.statSync(path.join(dir, 'replace.ts')));
     await startWorkerServer(cx);
 
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/replace.ts`)).toEqual({
       status: 200,
       body: { version: 'a' },
     });
-
-    // Delete the file
-    fs.rmSync(path.join(dir, 'replace.ts'));
-
-    // GET after deletion — should trigger dispose
-    expect(await cx.router.get(new URL('http://local/replace.ts'))).toBeUndefined();
-    expect((globalThis as any).__lazy_dispose_count).toBe(1);
-
-    // Recreate with different content
-    writeApi(
-      dir,
-      'replace.ts',
-      `exports.default = { type: 0,
-        handler: () => ({ version: 'b' }),
-        disposer: () => { (globalThis as any).__lazy_dispose_count++; },
-      };\n`,
-    );
-    const statNew = fs.statSync(path.join(dir, 'replace.ts'));
-
-    // GET should re-register the new file automatically
-    const moduleNew = await cx.router.get(new URL('http://local/replace.ts'));
-    expect(moduleNew).toBeDefined();
-    expect(moduleNew!.mtimeMs).toBe(statNew.mtimeMs);
-
-    // Now the new handler should respond
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/replace.ts`)).toEqual({
       status: 200,
-      body: { version: 'b' },
+      body: { version: 'a' },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect((globalThis as any).__lazy_dispose_count).toBe(2);
+  });
+
+  test('does not require a disposer', async () => {
+    const dir = makeTempDir();
+    const cx = makeContext(dir);
+
+    writeApi(dir, 'plain.ts', 'exports.default = { type: 0, handler: () => ({ ok: true }) };\n');
+    await startWorkerServer(cx);
+
+    expect(await requestJson(`http://127.0.0.1:${cx.options.port}/plain.ts`)).toEqual({
+      status: 200,
+      body: { ok: true },
     });
   });
 });

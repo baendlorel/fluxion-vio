@@ -236,7 +236,9 @@ export interface FluxionModule {
   handler: FluxionHandler;
 
   /**
-   * This is meant to clear resources used by handler while it's down.
+   * Cleanup for the resources created by this module instance.
+   * It runs once the response for the request that loaded this instance has been sent.
+   * Optional — omit it when there is nothing to clean up.
    */
   disposer?: FluxionDisposer;
 
