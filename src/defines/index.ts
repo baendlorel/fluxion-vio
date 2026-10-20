@@ -6,7 +6,7 @@ import type {
   FluxionModuleObject,
 } from '@/types.js';
 import type { FluxionLoggerFn } from '@/common/logger.js';
-import { FluxionModuleType } from '@/common/consts.js';
+import { ModuleType } from '@/common/consts.js';
 
 export { defineFluxionOptions } from './options.js';
 
@@ -28,7 +28,7 @@ export function defineFluxionModule(
     if (disposer !== undefined && typeof disposer !== 'function') {
       _throw(`Invalid disposer, expected a function but got ${typeof disposer}`);
     }
-    return { handler: a, disposer, type: FluxionModuleType.Api };
+    return { handler: a, disposer, type: ModuleType.Api };
   }
 
   if (typeof a !== 'object' || a === null) {
@@ -54,7 +54,7 @@ export function defineFluxionModule(
     _throw(`Invalid FluxionModule, "middlewares" must be an array of functions if provided`);
   }
 
-  return { ...a, type: FluxionModuleType.Api };
+  return { ...a, type: ModuleType.Api };
 }
 
 export function defineFluxionMiddleware(middleware: FluxionMiddleware): FluxionMiddleware {

@@ -6,7 +6,7 @@ import {
   HttpCode,
   HANDLER_TIMEOUT_FLAG,
   STATIC_HANDLED_FLAG,
-  FluxionModuleType,
+  ModuleType,
   MIDDLEWARE_TIMEOUT_FLAG,
 } from '@/common/consts.js';
 import { PromiseTry } from '@/common/promise-try.js';
@@ -105,7 +105,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       }
 
       const timeoutMs =
-        m.type === FluxionModuleType.Api
+        m.type === ModuleType.Api
           ? (m.handlerTimeoutMs ?? cx.options.handlerTimeoutMs)
           : cx.options.staticResourceTimeoutMs;
 

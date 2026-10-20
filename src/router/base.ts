@@ -1,8 +1,8 @@
 import type { FluxionContext, NormalizedModule, FluxionRouteMeta } from '../types.js';
-import { FluxionModuleType, STATIC_CONTENT_TYPES, STATIC_HANDLED_FLAG } from '@/common/consts.js';
 import { createReadStream, type Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { ModuleType, STATIC_CONTENT_TYPES, STATIC_HANDLED_FLAG } from '@/common/consts.js';
 
 export abstract class FluxionRouterBase {
   protected readonly cx: Pick<FluxionContext, 'options' | 'logger'>;
@@ -14,7 +14,7 @@ export abstract class FluxionRouterBase {
 
   protected async makeStaticResource(absolutePath: string): Promise<NormalizedModule> {
     return {
-      type: FluxionModuleType.StaticResource,
+      type: ModuleType.StaticResource,
       mtimeMs: NaN,
       absolutePath: absolutePath,
       handler: async (normalized, cx, req, res) => {
@@ -97,7 +97,7 @@ export abstract class FluxionRouterBase {
       .map(
         ([relativePath, m]): FluxionRouteMeta => ({
           path: '/' + relativePath,
-          type: m.type === FluxionModuleType.Api ? 'api' : 'static',
+          type: m.type === ModuleType.Api ? 'api' : 'static',
           methods: m.methods ? [...m.methods] : null,
         }),
       )

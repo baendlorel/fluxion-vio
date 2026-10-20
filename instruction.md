@@ -1,7 +1,8 @@
-# Fluxion — AI Coding Instruction
+# Fluxion Vio — AI Coding Instruction
 
-> This document guides AI coding agents (and humans) on how to correctly use the Fluxion framework.
-> Fluxion is a filesystem-routing dynamic HTTP server for Node.js, designed as a PHP-like hot-reloadable backend.
+> This document guides AI coding agents (and humans) on how to correctly use the Fluxion Vio framework.
+> Fluxion Vio is a lean branch of Fluxion: a filesystem-routing dynamic HTTP server for Node.js, designed as a PHP-like hot-reloadable backend for small, low-traffic services.
+> Vio targets internal tools and small APIs with modest traffic and low security requirements. It is **not** suitable as a security boundary or for high-concurrency, internet-facing workloads.
 
 ## Table of Contents
 
@@ -20,11 +21,11 @@
 
 ## 1. Overview
 
-Fluxion is a Node.js server framework with these core concepts:
+Fluxion Vio is a Node.js server framework with these core concepts:
 
 - **Lazy loading**: API handler modules are loaded on demand when requests arrive. No file watcher runs at runtime — zero overhead when files are stable.
 - **Filesystem routing**: files under a `dir` directory become HTTP routes. The file path IS the URL path.
-- **Single-process architecture**: Fluxion runs as a single process. Use pm2, docker, or kubernetes for clustering.
+- **Single-process architecture**: Fluxion Vio runs as a single process. Vio has no built-in clustering or daemon supervisor; use pm2, docker, systemd, or kubernetes when you need more.
 - **API handlers**: TypeScript/JavaScript files matching `apiInclude` patterns (default: `**/*.ts`) are loaded as handler modules.
 - **Static files**: files matching `staticInclude` patterns (default: `**/*`) are served as static resources (GET/HEAD only).
 - **File exclusion**: files matching `exclude` patterns are skipped.
@@ -33,12 +34,12 @@ Fluxion is a Node.js server framework with these core concepts:
 ### Package Exports
 
 ```ts
-import { fluxion } from 'fluxion-ts';                    // Start the server
-import { HttpCode } from 'fluxion-ts';                   // HTTP status code enum
-import { defineFluxionModule } from 'fluxion-ts';        // Define an API handler
-import { defineFluxionMiddleware } from 'fluxion-ts';    // Define a middleware
-import { defineFluxionLogger } from 'fluxion-ts';        // Define a custom logger
-import { defineFluxionOptions } from 'fluxion-ts';       // Normalize/validate options
+import { fluxion } from 'fluxion-vio';                    // Start the server
+import { HttpCode } from 'fluxion-vio';                   // HTTP status code enum
+import { defineFluxionModule } from 'fluxion-vio';        // Define an API handler
+import { defineFluxionMiddleware } from 'fluxion-vio';    // Define a middleware
+import { defineFluxionLogger } from 'fluxion-vio';        // Define a custom logger
+import { defineFluxionOptions } from 'fluxion-vio';       // Normalize/validate options
 
 // HTTP Exception classes
 import {
@@ -49,20 +50,20 @@ import {
   UnprocessableEntityException, TooManyRequestsException,
   InternalServerErrorException, NotImplementedException, BadGatewayException,
   ServiceUnavailableException, GatewayTimeoutException,
-} from 'fluxion-ts';
+} from 'fluxion-vio';
 
 // Type imports
-import type { FluxionRequest, FluxionModuleContext, FluxionOptions } from 'fluxion-ts';
+import type { FluxionRequest, FluxionModuleContext, FluxionOptions } from 'fluxion-vio';
 ```
 
 ---
 
 ## 2. Starting a Server
 
-Fluxion is started programmatically. There is no built-in CLI.
+Fluxion Vio is started programmatically. There is no built-in CLI.
 
 ```ts
-import { fluxion } from 'fluxion-ts';
+import { fluxion } from 'fluxion-vio';
 
 await fluxion({
   dir: './dynamic',       // Required: directory for route files
@@ -91,7 +92,7 @@ Relative paths are resolved relative to `moduleDir` (default: `process.cwd()`). 
 ### Custom Logger
 
 ```ts
-import { fluxion, defineFluxionLogger } from 'fluxion-ts';
+import { fluxion, defineFluxionLogger } from 'fluxion-vio';
 
 const myLogger = defineFluxionLogger((entry) => {
   console.log(JSON.stringify(entry));
@@ -122,7 +123,7 @@ Every API handler **must** use `defineFluxionModule()`. Place handler files unde
 
 ```ts
 // File: dynamic/hello.ts  →  URL: /hello.ts
-import { defineFluxionModule } from 'fluxion-ts';
+import { defineFluxionModule } from 'fluxion-vio';
 
 export default defineFluxionModule(async (req, cx) => {
   return { message: 'hello', path: req.url.pathname };
@@ -132,7 +133,7 @@ export default defineFluxionModule(async (req, cx) => {
 ### Full handler (object form)
 
 ```ts
-import { defineFluxionModule, defineFluxionMiddleware } from 'fluxion-ts';
+import { defineFluxionModule, defineFluxionMiddleware } from 'fluxion-vio';
 
 const authMiddleware = defineFluxionMiddleware(async (req, cx, rawReq, rawRes) => {
   const token = req.headers.authorization;
@@ -184,7 +185,7 @@ type FluxionHandler = (
 Middleware runs sequentially **before** the handler. It can modify the request via side effects.
 
 ```ts
-import { defineFluxionMiddleware } from 'fluxion-ts';
+import { defineFluxionMiddleware } from 'fluxion-vio';
 
 const logMiddleware = defineFluxionMiddleware(async (req, cx) => {
   cx.logger.info({ message: 'request', path: req.url.pathname });
@@ -227,7 +228,7 @@ Default middleware timeout is `3000ms`. Configure via `middlewareTimeoutMs` in s
 Throw these in handlers or middleware to produce an error response:
 
 ```ts
-import { defineFluxionModule, NotFoundException, BadRequestException } from 'fluxion-ts';
+import { defineFluxionModule, NotFoundException, BadRequestException } from 'fluxion-vio';
 
 export default defineFluxionModule(async (req) => {
   const id = req.query.id;
@@ -339,8 +340,8 @@ export default defineFluxionModule(async (_req, _cx, _rawReq, res) => {
 
 ### Rules
 
-- If `rawRes.writableEnded` is true, Fluxion will NOT send another response.
-- If the handler returns `undefined` and the response hasn't been ended, Fluxion sends the default JSON.
+- If `rawRes.writableEnded` is true, Fluxion Vio will NOT send another response.
+- If the handler returns `undefined` and the response hasn't been ended, Fluxion Vio sends the default JSON.
 - Security headers are automatically added to all responses: `X-Content-Type-Options`, `X-Frame-Options`, `X-XSS-Protection`, `Content-Security-Policy`.
 
 ---
@@ -408,7 +409,7 @@ export default defineFluxionModule({
 ### JSON body validation
 
 ```ts
-import { defineFluxionModule, BadRequestException } from 'fluxion-ts';
+import { defineFluxionModule, BadRequestException } from 'fluxion-vio';
 
 export default defineFluxionModule({
   methods: ['POST'],
@@ -428,7 +429,7 @@ export default defineFluxionModule({
 ### Composing multiple middleware
 
 ```ts
-import { defineFluxionModule, defineFluxionMiddleware } from 'fluxion-ts';
+import { defineFluxionModule, defineFluxionMiddleware } from 'fluxion-vio';
 
 const cors = defineFluxionMiddleware(async (_req, _cx, _rawReq, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -463,7 +464,7 @@ await fluxion({
 
 ### Lazy loading behavior
 
-Fluxion's lazy router caches modules on first request. Subsequent requests use the cached version:
+Fluxion Vio's lazy router caches modules on first request. Subsequent requests use the cached version:
 
 ```ts
 // File: dynamic/counter.ts
@@ -508,7 +509,7 @@ When a file changes, the module is reloaded. Any module-level variables (caches,
 
 ### Lazy loading lifecycle
 
-Fluxion uses a lazy loading strategy:
+Fluxion Vio uses a lazy loading strategy:
 
 1. **First request**: Module is loaded from disk, parsed, and cached in memory.
 2. **Subsequent requests**: Cached module is returned if `mtime` is unchanged.
@@ -523,17 +524,19 @@ Fluxion uses a lazy loading strategy:
 - **Error message sanitization**: Internal error details are never leaked to clients. Uncaught exceptions return a generic `500 Internal Server Error` message.
 - **Cookie limits**: Maximum 100 cookies per request.
 
+These are baseline hardening measures, not a security boundary. Fluxion Vio does **not** provide authentication, authorization, CSRF protection, rate limiting, or handler sandboxing; handlers run with full Node.js privileges. Bind to a private interface or put a reverse proxy in front for TLS and access control.
+
 ### Process management
 
-Fluxion runs as a single process. For production deployments, use process managers like pm2, docker, or kubernetes.
+Fluxion Vio runs as a single process and ships no daemon supervisor. For production deployments, use process managers like pm2, docker, systemd, or kubernetes.
 
 ### Health checks / monitoring endpoints
 
-Fluxion intentionally ships **no built-in metadata endpoints** (no `/_fluxion/*` routes). For security, nothing about the server is exposed automatically — implement health checks yourself as ordinary API handlers:
+Fluxion Vio intentionally ships **no built-in metadata endpoints** (no `/_vio/*` routes). For security, nothing about the server is exposed automatically — implement health checks yourself as ordinary API handlers:
 
 ```ts
 // healthz.ts — a regular handler, registered like any other route
-import { defineFluxionModule } from 'fluxion-ts';
+import { defineFluxionModule } from 'fluxion-vio';
 
 export default defineFluxionModule({
   handler: () => ({

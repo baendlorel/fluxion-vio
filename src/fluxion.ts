@@ -7,6 +7,10 @@ import { createServer } from './http/server.js';
 import { FluxionRouter } from './router/index.js';
 import { DependencyWatcher } from './watcher/dep-watcher.class.js';
 
+/**
+ * Creates a fluxion-vio server instance.
+ * @version __VERSION__
+ */
 export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions) {
   const alreadyNormalized = (options as NormalizedFluxionOptions).normalizedFlag === OPTIONS_NORMALIZED_FLAG;
   const context = { options: alreadyNormalized ? options : defineFluxionOptions(options) } as FluxionContext;

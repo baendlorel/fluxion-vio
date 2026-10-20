@@ -3,8 +3,6 @@ import { HttpCode } from './common/consts.js';
 
 export { fluxion, HttpCode };
 
-export { launchDaemon } from './daemon.js';
-
 /**
  * Export fluxion version for users' debugging.
  * @version __VERSION__

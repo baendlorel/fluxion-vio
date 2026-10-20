@@ -6,7 +6,7 @@ import { FluxionRouter } from '../src/router/lazy.js';
 import { defineFluxionOptions } from '../src/defines/options.js';
 import { createLogger } from '../src/common/logger.js';
 import { createServer } from '../src/http/server.js';
-import { FluxionModuleType } from '../src/common/consts.js';
+import { ModuleType } from '../src/common/consts.js';
 import type { FluxionContext } from '../src/types.js';
 import type http from 'node:http';
 import type https from 'node:https';
@@ -124,7 +124,7 @@ describe('lazy route — cache behavior', () => {
     const cx = makeContext(dir);
 
     // Write initial version
-    writeApi(dir, 'counter.ts', "exports.default = { type: 0, handler: () => ({ value: 1 }) };\n");
+    writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 1 }) };\n');
     await register(cx, 'counter.ts', fs.statSync(path.join(dir, 'counter.ts')));
 
     // Verify initial response
@@ -136,7 +136,7 @@ describe('lazy route — cache behavior', () => {
 
     // Update file content (changes mtime)
     await new Promise((r) => setTimeout(r, 100)); // ensure distinct mtime
-    writeApi(dir, 'counter.ts', "exports.default = { type: 0, handler: () => ({ value: 2 }) };\n");
+    writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 2 }) };\n');
     const stat2 = fs.statSync(path.join(dir, 'counter.ts'));
 
     // GET triggers lazy reload because mtime differs
@@ -155,7 +155,7 @@ describe('lazy route — cache behavior', () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
-    writeApi(dir, 'cachecheck.ts', "exports.default = { type: 0, handler: () => ({ n: Math.random() }) };\n");
+    writeApi(dir, 'cachecheck.ts', 'exports.default = { type: 0, handler: () => ({ n: Math.random() }) };\n');
     await register(cx, 'cachecheck.ts', fs.statSync(path.join(dir, 'cachecheck.ts')));
 
     // get() should return the same module reference (not re-loaded)

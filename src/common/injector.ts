@@ -1,7 +1,7 @@
 import type { FluxionContext, NormalizedModule } from '@/types.js';
 import { Stats } from 'node:fs';
 import { static_cast } from 'type-narrow';
-import { FluxionModuleType } from './consts.js';
+import { ModuleType } from './consts.js';
 
 function isFluxionModule(cx: Pick<FluxionContext, 'options' | 'logger'>, o: unknown): o is NormalizedModule {
   if (typeof o !== 'object' || o === null) {
@@ -26,7 +26,7 @@ function isFluxionModule(cx: Pick<FluxionContext, 'options' | 'logger'>, o: unkn
     return false;
   }
 
-  if (o.type !== FluxionModuleType.Api) {
+  if (o.type !== ModuleType.Api) {
     cx.logger.error(`You must use defineFluxionModule to create module`);
     return false;
   }

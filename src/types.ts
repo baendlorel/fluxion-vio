@@ -1,9 +1,9 @@
 import type http from 'node:http';
 import type { FluxionLogger, InternalFluxionLogger, LoggerOption } from '@/common/logger.js';
 import type { FluxionRouter } from './router/index.js';
-import type { otherstring } from './global.js';
-import type { FluxionModuleType } from './common/consts.js';
-import type { DependencyWatcher } from './watcher/dep-watcher.class.js';
+import type { ModuleType } from './common/consts.js';
+
+export type otherstring = string & {};
 
 export interface FluxionRequest {
   /**
@@ -186,7 +186,6 @@ export interface FluxionContext {
   options: NormalizedFluxionOptions;
   logger: InternalFluxionLogger;
   router: FluxionRouter;
-  depWatcher: DependencyWatcher;
 }
 
 export interface FluxionModuleContext {
@@ -262,7 +261,7 @@ export interface FluxionModule {
 }
 
 export interface FluxionModuleObject extends FluxionModule {
-  type: FluxionModuleType;
+  type: ModuleType;
 }
 
 export interface NormalizedModule extends FluxionModuleObject {

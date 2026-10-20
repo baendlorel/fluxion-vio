@@ -6,7 +6,7 @@ import { FluxionRouter } from '../src/router/index.js';
 import { defineFluxionOptions } from '../src/defines/options.js';
 import { createLogger } from '../src/common/logger.js';
 import { createServer } from '../src/http/server.js';
-import { FluxionModuleType } from '../src/common/consts.js';
+import { ModuleType } from '../src/common/consts.js';
 import type { FluxionContext, FluxionOptions } from '../src/types.js';
 import type http from 'node:http';
 import type https from 'node:https';
@@ -101,8 +101,8 @@ describe('flexible router registration', () => {
     await register(cx, 'asset.txt', fs.statSync(path.join(dir, 'asset.txt')));
 
     // API files should be registered without extension when removeApiFileExt is true (default)
-    expect((await cx.router.get(new URL('http://local/hello.ts')))?.type).toBe(FluxionModuleType.Api);
-    expect((await cx.router.get(new URL('http://local/asset.txt')))?.type).toBe(FluxionModuleType.StaticResource);
+    expect((await cx.router.get(new URL('http://local/hello.ts')))?.type).toBe(ModuleType.Api);
+    expect((await cx.router.get(new URL('http://local/asset.txt')))?.type).toBe(ModuleType.StaticResource);
     expect(cx.router.getRoutes()).toEqual([
       { path: '/asset.txt', type: 'static', methods: null },
       { path: '/hello.ts', type: 'api', methods: null },
@@ -138,7 +138,7 @@ describe('flexible router registration', () => {
     await register(cx, 'user.ts', fs.statSync(path.join(dir, 'user.ts')));
 
     // API should be accessible without extension (remove-ext is hardcoded behavior)
-    expect((await cx.router.get(new URL('http://local/user.ts')))?.type).toBe(FluxionModuleType.Api);
+    expect((await cx.router.get(new URL('http://local/user.ts')))?.type).toBe(ModuleType.Api);
     expect(cx.router.getRoutes()).toEqual([{ path: '/user.ts', type: 'api', methods: null }]);
   });
 
