@@ -105,14 +105,7 @@ export enum HttpCode {
   GatewayTimeout = 504,
 }
 
-export const enum HandlerResult {
-  NotFound,
-  Handled,
-}
-
 export const enum ModuleType {
   Api,
   StaticResource,
 }
-
-export const noop = () => {};

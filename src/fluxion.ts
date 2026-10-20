@@ -4,7 +4,7 @@ import { createLogger } from './common/logger.js';
 import { flags } from './common/consts.js';
 import { defineFluxionOptions } from './defines/options.js';
 import { createServer } from './http/server.js';
-import { FluxionRouter } from './router/index.js';
+import { createRouter } from './router/index.js';
 
 /**
  * Creates a fluxion-vio server instance.
@@ -15,7 +15,7 @@ export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions
   const context = { options: alreadyNormalized ? options : defineFluxionOptions(options) } as FluxionContext;
 
   context.logger = createLogger(context as Pick<FluxionContext, 'options'>);
-  context.router = new FluxionRouter(context as Pick<FluxionContext, 'options' | 'logger'>);
+  context.router = createRouter(context as Pick<FluxionContext, 'options' | 'logger'>);
 
   // Start HTTP server
   const server = await createServer(context);

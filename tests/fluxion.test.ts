@@ -3,10 +3,10 @@ import type http from 'node:http';
 import type https from 'node:https';
 
 import { afterAll, describe, expect, test } from 'vitest';
-import fs, { Stats } from 'node:fs';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FluxionRouter } from '../src/router/index.js';
+import { createRouter } from '../src/router/index.js';
 import { defineFluxionOptions } from '../src/defines/options.js';
 import { createLogger } from '../src/common/logger.js';
 import { createServer } from '../src/http/server.js';
@@ -51,7 +51,7 @@ const makeContext = (dir: string, port = nextPort(), overrides: Partial<FluxionO
   });
   const cx = { options } as FluxionContext;
   cx.logger = createLogger(cx);
-  cx.router = new FluxionRouter(cx);
+  cx.router = createRouter(cx);
   return cx;
 };
 
@@ -61,9 +61,6 @@ const startWorkerServer = async (cx: FluxionContext) => {
   return server;
 };
 
-const register = (cx: FluxionContext, relativePath: string, stat: Stats) =>
-  cx.router.register(path.join(cx.options.dir, relativePath), relativePath, stat);
-
 afterAll(async () => {
   await Promise.all(servers.splice(0).map((server) => closeServer(server)));
   for (const dir of tempRoots.splice(0)) {
@@ -71,7 +68,7 @@ afterAll(async () => {
   }
 });
 
-describe('flexible router registration', () => {
+describe('router resolution', () => {
   test('throws error when deprecated include option is used', async () => {
     const dir = makeTempDir();
     expect(() => {
@@ -87,36 +84,23 @@ describe('flexible router registration', () => {
     }).toThrow(/The "include" option has been removed.*apiInclude.*staticInclude/s);
   });
 
-  test('registers api and static files, updates api handlers, and removes deleted files with sync fs operations', async () => {
+  test('resolves api and static files, picks up edits, and 404s deleted files', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
     writeApi(dir, 'hello.ts', "exports.default = { type: 0, handler: () => ({ message: 'hello-v1' }) };\n");
     fs.writeFileSync(path.join(dir, 'asset.txt'), 'asset-v1');
 
-    await register(cx, 'hello.ts', fs.statSync(path.join(dir, 'hello.ts')));
-    await register(cx, 'asset.txt', fs.statSync(path.join(dir, 'asset.txt')));
+    expect((await cx.router(new URL('http://local/hello.ts')))?.type).toBe(ModuleType.Api);
+    expect((await cx.router(new URL('http://local/asset.txt')))?.type).toBe(ModuleType.StaticResource);
 
-    // API files should be registered without extension when removeApiFileExt is true (default)
-    expect((await cx.router.get(new URL('http://local/hello.ts')))?.type).toBe(ModuleType.Api);
-    expect((await cx.router.get(new URL('http://local/asset.txt')))?.type).toBe(ModuleType.StaticResource);
-    expect(cx.router.getRoutes()).toEqual([
-      { path: '/asset.txt', type: 'static', methods: null },
-      { path: '/hello.ts', type: 'api', methods: null },
-    ]);
-
-    let server = await startWorkerServer(cx);
+    await startWorkerServer(cx);
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/hello.ts`)).toEqual({
       status: 200,
       body: { message: 'hello-v1' },
     });
 
-    await closeServer(server);
-    servers.splice(servers.indexOf(server), 1);
-
     writeApi(dir, 'hello.ts', "exports.default = { type: 0, handler: () => ({ message: 'hello-v2' }) };\n");
-    await register(cx, 'hello.ts', fs.statSync(path.join(dir, 'hello.ts')));
-    server = await startWorkerServer(cx);
 
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/hello.ts`)).toEqual({
       status: 200,
@@ -125,18 +109,6 @@ describe('flexible router registration', () => {
 
     fs.rmSync(path.join(dir, 'hello.ts'));
     expect((await requestJson(`http://127.0.0.1:${cx.options.port}/hello.ts`)).status).toBe(404);
-  });
-
-  test('API file path has extension removed by default', async () => {
-    const dir = makeTempDir();
-    const cx = makeContext(dir);
-
-    writeApi(dir, 'user.ts', "exports.default = { type: 0, handler: () => ({ name: 'user' }) };\n");
-    await register(cx, 'user.ts', fs.statSync(path.join(dir, 'user.ts')));
-
-    // API should be accessible without extension (remove-ext is hardcoded behavior)
-    expect((await cx.router.get(new URL('http://local/user.ts')))?.type).toBe(ModuleType.Api);
-    expect(cx.router.getRoutes()).toEqual([{ path: '/user.ts', type: 'api', methods: null }]);
   });
 
   test('honors staticInclude, exclude, apiInclude, and method declarations', async () => {
@@ -162,17 +134,12 @@ describe('flexible router registration', () => {
     });
     const cx = { options } as FluxionContext;
     cx.logger = createLogger(cx);
-    cx.router = new FluxionRouter(cx);
+    cx.router = createRouter(cx);
 
-    await register(cx, 'post.api.ts', fs.statSync(path.join(dir, 'post.api.ts')));
-    await register(cx, 'page.html', fs.statSync(path.join(dir, 'page.html')));
-    await register(cx, 'ignore.txt', fs.statSync(path.join(dir, 'ignore.txt')));
-    await register(cx, path.join('private', 'hidden.ts'), fs.statSync(path.join(dir, 'private', 'hidden.ts')));
-
-    expect(cx.router.getRoutes()).toEqual([
-      { path: '/page.html', type: 'static', methods: null },
-      { path: '/post.api.ts', type: 'api', methods: ['POST'] },
-    ]);
+    expect((await cx.router(new URL('http://local/post.api.ts')))?.type).toBe(ModuleType.Api);
+    expect((await cx.router(new URL('http://local/page.html')))?.type).toBe(ModuleType.StaticResource);
+    expect(await cx.router(new URL('http://local/ignore.txt'))).toBeUndefined();
+    expect(await cx.router(new URL('http://local/private/hidden.ts'))).toBeUndefined();
 
     await startWorkerServer(cx);
     expect((await requestJson(`http://127.0.0.1:${cx.options.port}/post.api.ts`)).status).toBe(405);
@@ -201,7 +168,6 @@ describe('middleware', () => {
         handler: (req) => ({ steps: req.meta.steps, fromMiddleware: req.query.fromMiddleware, body: req.body })
       };\n`,
     );
-    await register(cx, 'middleware.ts', fs.statSync(path.join(dir, 'middleware.ts')));
     await startWorkerServer(cx);
 
     expect(
@@ -227,7 +193,6 @@ describe('middleware', () => {
         handler: () => ({ reached: true })
       };\n`,
     );
-    await register(cx, 'guard.ts', fs.statSync(path.join(dir, 'guard.ts')));
     await startWorkerServer(cx);
 
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/guard.ts`)).toEqual({
@@ -242,7 +207,6 @@ describe('content security policy', () => {
     const dir = makeTempDir();
     const cx = makeContext(dir, nextPort(), overrides);
     writeApi(dir, 'hello.ts', "exports.default = { type: 0, handler: () => ({ message: 'hello' }) };\n");
-    await register(cx, 'hello.ts', fs.statSync(path.join(dir, 'hello.ts')));
     await startWorkerServer(cx);
     const res = await fetch(`http://127.0.0.1:${cx.options.port}/hello.ts`);
     return { res, options: cx.options };

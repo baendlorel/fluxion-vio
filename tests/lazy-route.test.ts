@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from 'vitest';
-import fs, { Stats } from 'node:fs';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FluxionRouter } from '../src/router/lazy.js';
+import { createRouter } from '../src/router/index.js';
 import { defineFluxionOptions } from '../src/defines/options.js';
 import { createLogger } from '../src/common/logger.js';
 import { createServer } from '../src/http/server.js';
@@ -48,7 +48,7 @@ const makeContext = (dir: string, port = nextPort()) => {
   });
   const cx = { options } as FluxionContext;
   cx.logger = createLogger(cx);
-  cx.router = new FluxionRouter(cx);
+  cx.router = createRouter(cx);
   return cx;
 };
 
@@ -58,9 +58,6 @@ const startWorkerServer = async (cx: FluxionContext) => {
   return server;
 };
 
-const register = (cx: FluxionContext, relativePath: string, stat: Stats) =>
-  cx.router.register(path.join(cx.options.dir, relativePath), relativePath, stat);
-
 afterAll(async () => {
   await Promise.all(servers.splice(0).map((server) => closeServer(server)));
   for (const dir of tempRoots.splice(0)) {
@@ -69,19 +66,15 @@ afterAll(async () => {
 });
 
 describe('lazy route — empty start', () => {
-  test('returns no routes before any registration', async () => {
+  test('returns undefined for missing files and directories', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
-    // No files registered yet — routes should be empty
-    expect(cx.router.getRoutes()).toEqual([]);
-
-    // GET on any path should return undefined
-    expect(await cx.router.get(new URL('http://local/anything.ts'))).toBeUndefined();
-    expect(await cx.router.get(new URL('http://local/'))).toBeUndefined();
+    expect(await cx.router(new URL('http://local/anything.ts'))).toBeUndefined();
+    expect(await cx.router(new URL('http://local/'))).toBeUndefined();
   });
 
-  test('returns 404 on HTTP request before any file is registered', async () => {
+  test('returns 404 on HTTP request before any file exists', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
     await startWorkerServer(cx);
@@ -92,25 +85,18 @@ describe('lazy route — empty start', () => {
 });
 
 describe('lazy route — no cache', () => {
-  test('loads a fresh module on every get()', async () => {
+  test('loads a fresh module on every call', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
-    // Register an API
     writeApi(dir, 'greeting.ts', "exports.default = { type: 0, handler: () => ({ msg: 'hello' }) };\n");
-    const stat1 = fs.statSync(path.join(dir, 'greeting.ts'));
 
-    // First registration loads the module
-    const module1 = await register(cx, 'greeting.ts', stat1);
-    expect(module1).toBeDefined();
-    expect(module1!.handler).toBeTypeOf('function');
-
-    // GET via lazy router — re-reads the file, so a new module object each time
-    const get1 = await cx.router.get(new URL('http://local/greeting.ts'));
+    const get1 = await cx.router(new URL('http://local/greeting.ts'));
     expect(get1).toBeDefined();
-    expect(get1).not.toBe(module1);
+    expect(get1!.handler).toBeTypeOf('function');
 
-    const get2 = await cx.router.get(new URL('http://local/greeting.ts'));
+    // Re-reads the file, so a new module object each time
+    const get2 = await cx.router(new URL('http://local/greeting.ts'));
     expect(get2).toBeDefined();
     expect(get2).not.toBe(get1);
   });
@@ -121,7 +107,6 @@ describe('lazy route — no cache', () => {
 
     // Write initial version
     writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 1 }) };\n');
-    await register(cx, 'counter.ts', fs.statSync(path.join(dir, 'counter.ts')));
 
     // Verify initial response
     await startWorkerServer(cx);
@@ -132,12 +117,10 @@ describe('lazy route — no cache', () => {
 
     // Update file content
     writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 2 }) };\n');
-    const stat2 = fs.statSync(path.join(dir, 'counter.ts'));
 
-    // GET re-reads the file from disk
-    const module2 = await cx.router.get(new URL('http://local/counter.ts'));
+    // Resolve re-reads the file from disk
+    const module2 = await cx.router(new URL('http://local/counter.ts'));
     expect(module2).toBeDefined();
-    expect(module2!.mtimeMs).toBe(stat2.mtimeMs);
 
     // Response should now reflect the new version
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/counter.ts`)).toEqual({
@@ -151,16 +134,36 @@ describe('lazy route — no cache', () => {
     const cx = makeContext(dir);
 
     writeApi(dir, 'cachecheck.ts', 'exports.default = { type: 0, handler: () => ({ n: Math.random() }) };\n');
-    await register(cx, 'cachecheck.ts', fs.statSync(path.join(dir, 'cachecheck.ts')));
 
-    // get() re-reads the module every time, so references never match
-    const m1 = await cx.router.get(new URL('http://local/cachecheck.ts'));
-    const m2 = await cx.router.get(new URL('http://local/cachecheck.ts'));
-    const m3 = await cx.router.get(new URL('http://local/cachecheck.ts'));
+    const m1 = await cx.router(new URL('http://local/cachecheck.ts'));
+    const m2 = await cx.router(new URL('http://local/cachecheck.ts'));
+    const m3 = await cx.router(new URL('http://local/cachecheck.ts'));
 
     expect(m1).toBeDefined();
     expect(m1).not.toBe(m2);
     expect(m2).not.toBe(m3);
+  });
+});
+
+describe('lazy route — patterns', () => {
+  test('skips excluded files and path traversal attempts', async () => {
+    const dir = makeTempDir();
+    writeApi(dir, 'private/hidden.ts', 'exports.default = { type: 0, handler: () => ({}) };\n');
+
+    const options = defineFluxionOptions({
+      dir,
+      host: '127.0.0.1',
+      port: nextPort(),
+      apiInclude: ['**/*.ts'],
+      exclude: ['private/**'],
+      logger: () => {},
+    });
+    const cx = { options } as FluxionContext;
+    cx.logger = createLogger(cx);
+    cx.router = createRouter(cx);
+
+    expect(await cx.router(new URL('http://local/private/hidden.ts'))).toBeUndefined();
+    expect(await cx.router(new URL('http://local/../outside.ts'))).toBeUndefined();
   });
 });
 

@@ -512,8 +512,8 @@ Fluxion Vio uses a lazy loading strategy with **no module cache**:
 
 1. **Every request**: the router clears `require.cache` entirely, then loads the module from disk. The module and its whole import chain are re-evaluated.
 2. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
-3. **File deletion**: the route is removed from the route table and subsequent requests return `404`.
-4. **File re-creation**: after deletion, if the file is recreated, it will be re-registered on the next request.
+3. **File deletion**: the path no longer exists on disk, so subsequent requests return `404` — there is no route table to clean up.
+4. **File re-creation**: the recreated file is served immediately on the next request, with no registration step.
 
 ### Security features
 
@@ -533,7 +533,7 @@ Fluxion Vio runs as a single process and ships no daemon supervisor. For product
 Fluxion Vio intentionally ships **no built-in metadata endpoints** (no `/_vio/*` routes). For security, nothing about the server is exposed automatically — implement health checks yourself as ordinary API handlers:
 
 ```ts
-// healthz.ts — a regular handler, registered like any other route
+// healthz.ts — a regular handler, served like any other route
 import { defineFluxionModule } from 'fluxion-vio';
 
 export default defineFluxionModule({

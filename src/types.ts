@@ -94,15 +94,15 @@ export interface FluxionOptions {
   logger?: LoggerOption;
 
   /**
-   * Glob patterns for files that should be registered as API handlers.
-   * Files matching these patterns will be loaded as handlers and registered as APIs.
+   * Glob patterns for files that should be treated as API handlers.
+   * Files matching these patterns will be loaded as handlers and served as APIs.
    * Defaults to TypeScript files (*.ts).
-   * @example ['*.api.ts', 'handlers/*.js'] - register specific patterns as APIs
+   * @example ['*.api.ts', 'handlers/*.js'] - treat specific patterns as APIs
    */
   apiInclude?: string[];
 
   /**
-   * Glob patterns for files that should be registered as static resources.
+   * Glob patterns for files that should be treated as static resources.
    * Files(after matching `apiInclude`) matching these patterns will be served as static files.
    * Defaults to all files if not provided.
    * @example ['*.html', '*.css', '*.js'] - serve specific patterns as static files
@@ -110,8 +110,8 @@ export interface FluxionOptions {
   staticInclude?: string[];
 
   /**
-   * Glob patterns for files that should be excluded from registration.
-   * Files matching these patterns will not be registered (neither as API nor static resource).
+   * Glob patterns for files that should be excluded.
+   * Files matching these patterns will never be served (neither as API nor static resource).
    * Defaults to common exclusions like node_modules, .git, dist, etc.
    */
   exclude?: string[];
@@ -174,12 +174,6 @@ export interface NormalizedFluxionOptions {
 
   // !security check
   normalizedFlag: symbol;
-}
-
-export interface FluxionRouteMeta {
-  path: string;
-  type: 'api' | 'static';
-  methods: HTTPMethod[] | null;
 }
 
 export interface FluxionContext {
