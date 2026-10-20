@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "strict": true,
+    "types": ["node"],
+
+    "declaration": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "./examples/**/*.ts",
+    "./scripts/**/*.ts",
+    "./src/**/*.ts",
+    "./draft/**/*.ts",
+    "*.config.ts",
+    "./tests/**/*.ts",
+    "./local-test/**/*.ts"
+  ],
+  "exclude": ["**/dist/**/*.js", "**/dist/**/*.d.ts", "**/example/**/code/**"]
+}
