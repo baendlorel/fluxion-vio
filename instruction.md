@@ -464,7 +464,7 @@ await fluxion({
 
 ### Lazy loading behavior
 
-Fluxion Vio does **not** cache modules. Every request re-reads the handler file from disk. The whole `require.cache` is cleared before loading, so the module and all of its imports are re-evaluated:
+Fluxion Vio does **not** cache modules. Every request re-reads the handler file from disk. Before loading, every `require.cache` entry located under `dir` is dropped, so the module and all of its imports from `dir` are re-evaluated. Imports resolved from `node_modules` stay cached:
 
 ```ts
 // File: dynamic/counter.ts
@@ -510,10 +510,13 @@ When a file changes, the module is reloaded. Any module-level variables (caches,
 
 Fluxion Vio uses a lazy loading strategy with **no module cache**:
 
-1. **Every request**: the router clears `require.cache` entirely once, before resolving the path — whether the target turns out to be an API module or a static file. Loading happens after the purge, so the module and its whole import chain are re-evaluated.
-2. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
-3. **File deletion**: the path no longer exists on disk, so subsequent requests return `404` — there is no route table to clean up.
-4. **File re-creation**: the recreated file is served immediately on the next request, with no registration step.
+1. **Every request** that resolves to an existing file: once, right before the file is served, the router drops every `require.cache` entry located under `dir`, then loads the module from disk. Your handler and the files it imports from `dir` are re-evaluated.
+2. **Dependencies from `node_modules`** (and anything else outside `dir`) stay cached across requests. They are treated as installed code, not as hot-reloaded user code.
+3. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
+4. **File deletion**: the path no longer exists on disk, so subsequent requests return `404` — there is no route table to clean up.
+5. **File re-creation**: the recreated file is served immediately on the next request, with no registration step.
+
+The purge runs once per request, only after the request has resolved to an existing file. Requests that 404 (missing file, excluded path, path traversal) do not touch the cache. Matching uses the real path of `dir`, so a symlinked dynamic directory still works.
 
 ### Security features
 

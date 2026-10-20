@@ -8,7 +8,7 @@
   <img src="assets/fluxion.png" width="240px" alt="Fluxion Vio logo" />
 </p>
 
-**Fluxion Vio** is a branch of [Fluxion](https://github.com/baendlorel/fluxion) — a filesystem-routing dynamic HTTP server for Node.js with PHP-style hot reload.
+**Fluxion Vio** is a branch of [Fluxion v0.20.4](https://github.com/baendlorel/fluxion) — a filesystem-routing dynamic HTTP server for Node.js with PHP-style hot reload.
 
 Vio keeps the parts that make a small service quick to build and quick to ship, and drops the parts that only pay off at scale. It is meant for services with **modest traffic**, **low security requirements**, and **a deadline**: internal tools, admin panels, small APIs, webhooks, prototypes, and side services behind a trusted network.
 
@@ -43,13 +43,13 @@ If you need those, use upstream Fluxion with a process manager, or a full-featur
 
 Vio is a lean branch, not a rewrite:
 
-| Area                  | Fluxion                    | Fluxion Vio                               |
-| --------------------- | -------------------------- | ----------------------------------------- |
-| Handler/middleware API | —                         | Identical                                 |
-| Options               | —                          | Identical                                 |
-| Daemon supervisor     | `launchDaemon` exported    | Removed — use pm2, systemd, or container  |
-| Process model         | Single process             | Single process                            |
-| Hot reload            | Lazy, mtime-based          | Lazy, uncached — re-read per request      |
+| Area                   | Fluxion                 | Fluxion Vio                              |
+| ---------------------- | ----------------------- | ---------------------------------------- |
+| Handler/middleware API | —                       | Identical                                |
+| Options                | —                       | Identical                                |
+| Daemon supervisor      | `launchDaemon` exported | Removed — use pm2, systemd, or container |
+| Process model          | Single process          | Single process                           |
+| Hot reload             | Lazy, mtime-based       | Lazy, uncached — re-read per request     |
 
 Everything documented below applies to both, unless noted otherwise.
 
@@ -310,16 +310,18 @@ Known content types: `.html`, `.css`, `.js`, `.json`, `.png`, `.jpg`, `.jpeg`, `
 Fluxion Vio uses a **lazy loading** strategy:
 
 - Files are loaded on demand when a request arrives.
-- No module cache: every request re-reads the file from disk. `require.cache` is cleared once per request, before the path is resolved, so the module and its import chain are re-evaluated.
+- No module cache for your own files: once a request resolves to an existing file, entries under `dir` are dropped from `require.cache` before it is loaded, so the handler and the files it imports from `dir` are re-evaluated. Requests that end in `404` do not purge anything.
+- Packages from `node_modules` stay cached — they are installed dependencies, not hot-reloaded code.
 - If the file is deleted, subsequent requests return `404` — there is no route table to update.
 - No file watcher runs at runtime.
 
 This means:
 
 - **Fast startup**: No initial file scanning.
-- **Automatic hot-reload**: Edit a file, and the next request picks up the change — even with the same `mtime`.
+- **Automatic hot-reload**: Edit any file in `dir`, and the next request picks up the change — even with the same `mtime`.
 - **No watcher overhead**: No CPU/memory usage for file watching.
-- **Slower requests**: Each API request pays a `require()` cost; fine for low-traffic services, not for high throughput.
+- **Cheap dependency imports**: Requiring a package on the first request is the only time you pay for it; later requests reuse the cached dependency.
+- **Slower requests**: Each API request still pays for re-parsing your own handler files; fine for low-traffic services, not for high throughput.
 
 Reason:
 

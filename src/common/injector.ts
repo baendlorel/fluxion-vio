@@ -1,6 +1,7 @@
 import { FluxionError } from './error.js';
 import type { FluxionContext, NormalizedModule } from '@/types.js';
-import type { Stats } from 'node:fs';
+import { realpathSync, type Stats } from 'node:fs';
+import path from 'node:path';
 import { static_cast } from 'type-narrow';
 import { ModuleType } from './consts.js';
 
@@ -36,12 +37,36 @@ function isFluxionModule(cx: Pick<FluxionContext, 'options' | 'logger'>, o: unkn
 }
 
 /**
- * Drop every entry in require cache, so the next require re-reads all files from disk.
- * Call it once per request, before resolving anything, rather than once per module load.
+ * Build the prefix used to match `require.cache` keys against `dir`.
+ *
+ * `require.cache` keys are real paths, while `options.dir` comes from `path.resolve`.
+ * Resolving `dir` through symlinks once, at router creation, keeps the per-request check
+ * a plain string comparison and still matches files reached through a symlinked directory.
  */
-export function purgeRequireCache() {
-  for (const id of Object.keys(require.cache)) {
-    delete require.cache[id];
+export function createCacheRoot(dir: string): string {
+  let root: string;
+  try {
+    root = realpathSync(dir);
+  } catch {
+    // `dir` is created during option normalization, so this only guards against races.
+    root = path.resolve(dir);
+  }
+  return root.endsWith(path.sep) ? root : root + path.sep;
+}
+
+/**
+ * Drop every cached module under `root`, so the next require re-reads it from disk.
+ *
+ * Only files inside the dynamic directory are purged: they are the ones the user edits.
+ * Anything a handler pulls from `node_modules` (and other paths outside `dir`) stays cached,
+ * because dependency code is not hot-reloaded and re-evaluating it per request is very costly.
+ */
+export function purgeRequireCache(root: string): void {
+  const cache = require.cache;
+  for (const id of Object.keys(cache)) {
+    if (id.startsWith(root)) {
+      delete cache[id];
+    }
   }
 }
 

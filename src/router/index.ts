@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import { ModuleType, STATIC_CONTENT_TYPES, flags } from '@/common/consts.js';
-import { loadFluxionModule, purgeRequireCache } from '@/common/injector.js';
+import { createCacheRoot, loadFluxionModule, purgeRequireCache } from '@/common/injector.js';
 
 /**
  * Resolve a request URL to the module that should handle it.
@@ -13,6 +13,9 @@ import { loadFluxionModule, purgeRequireCache } from '@/common/injector.js';
 export type FluxionRouter = (url: URL) => Promise<NormalizedModule | undefined>;
 
 export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): FluxionRouter {
+  // Computed once: the cache prefix never changes for a given router.
+  const cacheRoot = createCacheRoot(cx.options.dir);
+
   return async (url) => {
     const relativePath = url.pathname.replace(/^[/]+/, '').replace(/[/]+$/, '');
     const absolutePath = path.join(cx.options.dir, relativePath);
@@ -34,14 +37,16 @@ export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): Fl
       return undefined;
     }
 
+    // One purge per request, right before the file is served: user files are re-read from disk,
+    // while dependencies from node_modules stay cached.
+    purgeRequireCache(cacheRoot);
+
     // API handlers are re-read from disk on every request
     if (cx.options.apiInclude.some((p) => minimatch(relativePath, p))) {
-      purgeRequireCache();
       return loadFluxionModule(cx, absolutePath, stat);
     }
 
     if (cx.options.staticInclude.some((p) => minimatch(relativePath, p))) {
-      purgeRequireCache();
       return makeStaticResource(absolutePath);
     }
 
