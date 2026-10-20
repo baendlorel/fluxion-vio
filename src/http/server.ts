@@ -2,13 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 
 import type { FluxionContext, FluxionModuleContext, FluxionRequest } from '../types.js';
-import {
-  HttpCode,
-  HANDLER_TIMEOUT_FLAG,
-  STATIC_HANDLED_FLAG,
-  ModuleType,
-  MIDDLEWARE_TIMEOUT_FLAG,
-} from '@/common/consts.js';
+import { HttpCode, flags, ModuleType } from '@/common/consts.js';
 import { PromiseTry } from '@/common/promise-try.js';
 import { getErrorMessage } from '@/common/logger.js';
 
@@ -115,10 +109,10 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
           const result = await waiter(
             PromiseTry(m.middlewares[i], normalized, moduleCx, req, res),
             cx.options.middlewareTimeoutMs,
-            MIDDLEWARE_TIMEOUT_FLAG,
+            flags.MiddlewareTimeout,
           );
 
-          if (result === MIDDLEWARE_TIMEOUT_FLAG) {
+          if (result === flags.MiddlewareTimeout) {
             cx.logger.warn({
               message: 'MiddlewareTimeout',
               method: normalized.method,
@@ -140,16 +134,16 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       const result = await waiter(
         PromiseTry(m.handler, normalized, moduleCx, req, res),
         timeoutMs,
-        HANDLER_TIMEOUT_FLAG,
+        flags.HandlerTimeout,
       );
 
-      if (result === HANDLER_TIMEOUT_FLAG) {
+      if (result === flags.HandlerTimeout) {
         cx.logger.warn({ message: 'HandlerTimeout', method: normalized.method, ip: normalized.ip });
         safeSendJson(res, { message: 'Handler timed out' }, HttpCode.InternalServerError);
         return;
       }
 
-      if (result !== STATIC_HANDLED_FLAG) {
+      if (result !== flags.StaticHandled) {
         safeSendJson(res, result);
       }
     } catch (e) {

@@ -1,7 +1,7 @@
+import type { FluxionOptions, NormalizedFluxionOptions } from '@/types.js';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FluxionOptions, NormalizedFluxionOptions } from '../types.js';
-import { OPTIONS_NORMALIZED_FLAG } from '@/common/consts.js';
+import { flags } from '@/common/consts.js';
 
 /**
  * Read certificate content from a file path or return the content directly.
@@ -21,7 +21,7 @@ function readCertificateContent(content: string | Buffer, moduleDir: string): Bu
     }
     return Buffer.from(content);
   }
-  _throw('Certificate content must be a string or Buffer');
+  throw new Error('Certificate content must be a string or Buffer');
 }
 
 /**
@@ -36,13 +36,13 @@ function normalizeHttpsOptions(
   }
 
   if (typeof https !== 'object' || https === null || Array.isArray(https)) {
-    _throw('FluxionOptions.https must be an object');
+    throw new Error('FluxionOptions.https must be an object');
   }
   if (typeof https.key !== 'string' && !Buffer.isBuffer(https.key)) {
-    _throw('FluxionOptions.https.key must be a string or Buffer');
+    throw new Error('FluxionOptions.https.key must be a string or Buffer');
   }
   if (typeof https.cert !== 'string' && !Buffer.isBuffer(https.cert)) {
-    _throw('FluxionOptions.https.cert must be a string or Buffer');
+    throw new Error('FluxionOptions.https.cert must be a string or Buffer');
   }
 
   const result: NormalizedFluxionOptions['https'] = {
@@ -66,12 +66,12 @@ function normalizeHttpsOptions(
  */
 export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOptions {
   if (typeof o !== 'object' || o === null || Array.isArray(o)) {
-    _throw('FluxionOptions must be an object');
+    throw new Error('FluxionOptions must be an object');
   }
 
   // Check for deprecated 'include' option
   if ('include' in o) {
-    _throw(
+    throw new Error(
       'The "include" option has been removed. Please use:\n' +
         '  - "apiInclude" for API handler patterns (default: ["**/*.ts"])\n' +
         '  - "staticInclude" for static resource patterns (default: ["**/*"])\n' +
@@ -114,45 +114,45 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
 
   const logger = o.logger ?? 'one-line';
   if (logger !== 'one-line' && logger !== 'json-line' && typeof logger !== 'function') {
-    _throw(`Invalid logger option, Must be 'one-line', 'json-line' or a custom logger function`);
+    throw new Error(`Invalid logger option, Must be 'one-line', 'json-line' or a custom logger function`);
   }
 
   if (typeof rawDir !== 'string') {
-    _throw('FluxionOptions.dir must be a string');
+    throw new Error('FluxionOptions.dir must be a string');
   }
   const dir = path.resolve(process.cwd(), rawDir);
 
   if (typeof rawModuleDir !== 'string') {
-    _throw('FluxionOptions.moduleDir must be a string');
+    throw new Error('FluxionOptions.moduleDir must be a string');
   }
   const moduleDir = path.resolve(rawModuleDir);
 
   if (typeof host !== 'string') {
-    _throw('FluxionOptions.host must be a string');
+    throw new Error('FluxionOptions.host must be a string');
   }
 
   if (!Number.isSafeInteger(handlerTimeoutMs) || handlerTimeoutMs <= 100) {
-    _throw('FluxionOptions.handlerTimeoutMs must be an integer greater than 100');
+    throw new Error('FluxionOptions.handlerTimeoutMs must be an integer greater than 100');
   }
 
   if (!Number.isSafeInteger(middlewareTimeoutMs) || middlewareTimeoutMs <= 100) {
-    _throw('FluxionOptions.middlewareTimeoutMs must be an integer greater than 100');
+    throw new Error('FluxionOptions.middlewareTimeoutMs must be an integer greater than 100');
   }
 
   if (typeof port !== 'number' || !Number.isSafeInteger(port)) {
-    _throw('FluxionOptions.port must be a positive integer');
+    throw new Error('FluxionOptions.port must be a positive integer');
   }
 
   if (port <= 1 || port > 65535) {
-    _throw('FluxionOptions.port must be 1 ~ 65535');
+    throw new Error('FluxionOptions.port must be 1 ~ 65535');
   }
 
   if (typeof maxRequestBytes !== 'number' || maxRequestBytes <= 0 || !Number.isSafeInteger(maxRequestBytes)) {
-    _throw('FluxionOptions.maxRequestBytes must be a positive integer');
+    throw new Error('FluxionOptions.maxRequestBytes must be a positive integer');
   }
 
   if (csp !== false && typeof csp !== 'string') {
-    _throw('FluxionOptions.csp must be a string or false');
+    throw new Error('FluxionOptions.csp must be a string or false');
   }
 
   if (!fs.existsSync(dir)) {
@@ -174,6 +174,6 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     exclude,
     https: normalizeHttpsOptions(https, moduleDir),
     csp,
-    normalizedFlag: OPTIONS_NORMALIZED_FLAG,
+    normalizedFlag: flags.OptionsNormalized,
   };
 }

@@ -69,7 +69,7 @@ export function loadFluxionModule(
     m = m.default;
   } else if (isFluxionModule(cx, m)) {
   } else {
-    _throw(`Invalid handler module '${absolutePath}', make sure it satisfies defineFluxionModule(...) helper`);
+    throw new Error(`Invalid handler module '${absolutePath}', make sure it satisfies defineFluxionModule(...) helper`);
   }
 
   m.absolutePath = absolutePath;

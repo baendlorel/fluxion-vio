@@ -1,9 +1,11 @@
 export const DUMMY_BASE_URL = 'http://fluxion.local';
 
-export const OPTIONS_NORMALIZED_FLAG = Symbol('fluxion.options.normalized');
-export const STATIC_HANDLED_FLAG = Symbol('fluxion.router.StaticHandled');
-export const HANDLER_TIMEOUT_FLAG = Symbol('fluxion.handlerTimeout');
-export const MIDDLEWARE_TIMEOUT_FLAG = Symbol('fluxion.middlewareTimeout');
+export namespace flags {
+  export const OptionsNormalized = Symbol('fluxion.options.normalized');
+  export const StaticHandled = Symbol('fluxion.router.StaticHandled');
+  export const HandlerTimeout = Symbol('fluxion.handlerTimeout');
+  export const MiddlewareTimeout = Symbol('fluxion.middlewareTimeout');
+}
 
 export const STATIC_CONTENT_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',

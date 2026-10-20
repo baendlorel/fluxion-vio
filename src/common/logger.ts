@@ -1,11 +1,9 @@
 import type { FluxionContext } from '@/types.js';
-import type { otherstring } from '@/global.js';
+import type { otherstring } from '@/types.js';
 import stringify from 'fast-json-stable-stringify';
 import { createWriteStream, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
-
-import { cctl } from './color.js';
 
 type LogLevel = 'CORE' | 'INFO' | 'WARN' | 'ERROR' | 'SUCC' | 'DEBUG' | 'VERBOSE' | otherstring;
 
@@ -61,22 +59,22 @@ const safeStringify = (value: unknown): string => {
 };
 
 const ColoredLevels: Record<LogLevel, string> = {
-  CORE: `${cctl.brightBlack}CORE${cctl.reset}`,
-  INFO: `${cctl.cyan}INFO${cctl.reset}`,
-  WARN: `${cctl.orange}WARN${cctl.reset}`,
-  ERROR: `${cctl.red}ERROR${cctl.reset}`,
-  SUCC: `${cctl.green}SUCC${cctl.reset}`,
-  DEBUG: `${cctl.blue}DEBUG${cctl.reset}`,
-  VERBOSE: `${cctl.purple}VERBOSE${cctl.reset}`,
+  CORE: `CORE`,
+  INFO: `INFO`,
+  WARN: `WARN`,
+  ERROR: `ERROR`,
+  SUCC: `SUCC`,
+  DEBUG: `DEBUG`,
+  VERBOSE: `VERBOSE`,
 };
 
 export const oneLineLogger: FluxionLoggerFn = (entry: LogEntry) => {
   const { level: rawLevel, timestamp: rawTimestamp, message: rawMessage, pid, ...fields } = entry;
 
-  const timestamp = `${cctl.darkGreen}[${rawTimestamp}]${cctl.reset}`;
+  const timestamp = `[${rawTimestamp}]`;
   const level = ColoredLevels[rawLevel] ?? rawLevel;
   const pidText = pid === undefined ? '' : ` [${pid}]`;
-  const fieldsText = Object.keys(fields).length > 0 ? ` ${cctl.dim}${safeStringify(fields)}${cctl.reset}` : '';
+  const fieldsText = Object.keys(fields).length > 0 ? ` ${safeStringify(fields)}` : '';
 
   // 智能处理消息内容：如果有 message 字段就显示，否则只显示 fields
   const content = rawMessage ? rawMessage + fieldsText : fieldsText.trim();

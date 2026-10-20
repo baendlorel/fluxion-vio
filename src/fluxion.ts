@@ -1,7 +1,7 @@
 import type { FluxionContext, FluxionOptions, NormalizedFluxionOptions } from './types.js';
 
 import { createLogger } from './common/logger.js';
-import { OPTIONS_NORMALIZED_FLAG } from './common/consts.js';
+import { flags.OptionsNormalized } from './common/consts.js';
 import { defineFluxionOptions } from './defines/options.js';
 import { createServer } from './http/server.js';
 import { FluxionRouter } from './router/index.js';
@@ -12,7 +12,7 @@ import { DependencyWatcher } from './watcher/dep-watcher.class.js';
  * @version __VERSION__
  */
 export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions) {
-  const alreadyNormalized = (options as NormalizedFluxionOptions).normalizedFlag === OPTIONS_NORMALIZED_FLAG;
+  const alreadyNormalized = (options as NormalizedFluxionOptions).normalizedFlag === flags.OptionsNormalized;
   const context = { options: alreadyNormalized ? options : defineFluxionOptions(options) } as FluxionContext;
 
   context.logger = createLogger(context as Pick<FluxionContext, 'options'>);

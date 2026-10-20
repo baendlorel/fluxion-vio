@@ -13,8 +13,8 @@ export function PromiseTry<T extends (...args: any[]) => any>(fn: T, ...args: Pa
       } else {
         resolve(r);
       }
-    } catch (error) {
-      reject(error);
+    } catch (e) {
+      reject(e);
     }
   });
 }

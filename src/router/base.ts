@@ -2,7 +2,7 @@ import type { FluxionContext, NormalizedModule, FluxionRouteMeta } from '../type
 import { createReadStream, type Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ModuleType, STATIC_CONTENT_TYPES, STATIC_HANDLED_FLAG } from '@/common/consts.js';
+import { ModuleType, STATIC_CONTENT_TYPES, flags } from '@/common/consts.js';
 
 export abstract class FluxionRouterBase {
   protected readonly cx: Pick<FluxionContext, 'options' | 'logger'>;
@@ -68,13 +68,13 @@ export abstract class FluxionRouterBase {
 
           const onEnd = () => {
             cleanup();
-            resolve(STATIC_HANDLED_FLAG);
+            resolve(flags.StaticHandled);
           };
 
           const onClientClose = () => {
             cleanup();
             stream.destroy();
-            resolve(STATIC_HANDLED_FLAG);
+            resolve(flags.StaticHandled);
           };
 
           stream.on('error', onError);
