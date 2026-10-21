@@ -4,57 +4,25 @@ import { createRequire } from 'node:module';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { NormalizedFluxionOptions } from '@/types.js';
 
-export interface FluxionModule {
+/**
+ * A module loaded by `fluxionRequire`. `deps` holds the instances it required, so a stale dependency shows up
+ * even when the cache has already been refilled.
+ */
+export interface LoadedModule {
   id: string;
   filename: string;
   exports: any;
-  /**
-   * mtime and size of the file when it was loaded. A file counts as changed when either differs.
-   */
   mtimeMs: number;
   size: number;
-  /**
-   * The modules under `dir` this one has required, by absolute path. The instances are kept (not just the paths),
-   * so the module knows when what it holds is no longer what the cache holds.
-   */
-  deps: Map<string, FluxionModule>;
+  deps: Map<string, LoadedModule>;
 }
 
 /**
- * Module table owned by the caller, keyed by absolute file path.
+ * Owned by the caller, keyed by absolute path. The loader keeps no state of its own.
  */
-export type FluxionModuleCache = Map<string, FluxionModule>;
-
-export interface FluxionRequireOptions {
-  /**
-   * Files inside this directory are loaded by `fluxionRequire` itself: each file is compiled and evaluated on its
-   * own, and every `import`/`require` it makes of another file inside `dir` goes through `fluxionRequire` again.
-   * Everything else (node_modules, builtins, files outside `dir`) is loaded by the native `require`,
-   * so it keeps Node's cache and is NOT hot-reloaded.
-   * @default dirname of the entry file
-   */
-  dir?: string;
-
-  /**
-   * The module table used for files inside `dir`. The loader never keeps one of its own, so this is the only
-   * place a module can be cached, and the caller decides what stays in it.
-   *
-   * With a table, a file is loaded fresh the first time it is asked for, and its mtime and size, and those of every
-   * file it requires (directly or not), are recorded. Asking for it again compares them with the disk: if any one
-   * file differs in either, the cached modules of that whole chain are dropped and the file is loaded fresh;
-   * if none changed, the cached exports are returned without touching the file.
-   *
-   * Content is never compared, so an edit that keeps both mtime and size is not noticed. A file that did not exist
-   * before is only picked up when something asks for it, which is also what makes the files requiring it change.
-   *
-   * You can still edit the table yourself: `cache.delete(file)` or `cache.clear()` make the next call re-evaluate,
-   * and every module that required a deleted file counts as changed too.
-   *
-   * Without it, a fresh table is used per call: nothing survives the call, like PHP re-running a script.
-   */
-  cache?: FluxionModuleCache;
-}
+export type LoadedModuleCache = Map<string, LoadedModule>;
 
 const NODE_MODULES = `${sep}node_modules${sep}`;
 
@@ -70,10 +38,10 @@ const JS_TO_TS: Record<string, string[]> = {
 
 const isBare = (specifier: string) => !specifier.startsWith('.') && !isAbsolute(specifier);
 
-const isChanged = (m: FluxionModule) => {
+const isChanged = (m: LoadedModule) => {
   try {
-    const { mtimeMs, size } = statSync(m.filename);
-    return mtimeMs !== m.mtimeMs || size !== m.size;
+    const s = statSync(m.filename);
+    return s.mtimeMs !== m.mtimeMs || s.size !== m.size;
   } catch {
     // gone counts as changed
     return true;
@@ -122,6 +90,7 @@ function compile(file: string) {
     write: false,
     platform: 'node',
     format: 'cjs',
+    // TODO 这里最好能配置
     target: 'node24',
     sourcemap: 'inline',
     sourcesContent: false,
@@ -138,19 +107,23 @@ function compile(file: string) {
 }
 
 /**
- * Load a ts/js file the way PHP runs a script: nothing is remembered unless you hand over a `cache`.
+ * Load a ts/js file under `options.dir`. Local files it imports are loaded the same way, each compiled by esbuild on
+ * its own; node_modules, builtins and files outside `dir` go through the native `require`.
  *
- * The file and every local file under `dir` it imports are compiled by esbuild one by one and evaluated by
- * `fluxionRequire` itself, so each of them gets its own `__dirname`, `__filename` and `import.meta`.
+ * With a `cache`, a file is loaded fresh the first time and its mtime and size are recorded together with those of
+ * every file it required. Asking again compares them: if any one differs, the whole chain is dropped and loaded
+ * fresh, otherwise the cached exports are returned. Content is never compared. Without a `cache`, nothing survives
+ * the call.
  *
- * It is synchronous, because `require` is: the imports of a file have to be loaded while it is running.
- *
- * The result is the module's `exports`, so `export default x` is available as `result.default`.
+ * Synchronous, because `require` is. The result is `exports`, so `export default x` is `result.default`.
  */
-export function fluxionRequire(absolutePath: string, options: FluxionRequireOptions = {}): any {
+export function fluxionRequire(
+  absolutePath: string,
+  options: Pick<NormalizedFluxionOptions, 'dir'>,
+  cache: LoadedModuleCache = new Map(),
+): any {
   const entry = resolve(absolutePath);
-  const dir = resolve(options.dir ?? dirname(entry));
-  const cache = options.cache ?? new Map<string, FluxionModule>();
+  const dir = options.dir;
 
   const dirPrefix = dir.endsWith(sep) ? dir : dir + sep;
   const isHot = (file: string) => {
@@ -161,7 +134,7 @@ export function fluxionRequire(absolutePath: string, options: FluxionRequireOpti
   /**
    * Return the cached module if nothing in its chain changed, otherwise drop the chain and load it fresh.
    */
-  const load = (file: string): FluxionModule => {
+  const load = (file: string): LoadedModule => {
     const cached = cache.get(file);
     if (cached === undefined) {
       return loadFresh(file);
@@ -180,7 +153,7 @@ export function fluxionRequire(absolutePath: string, options: FluxionRequireOpti
     return loadFresh(file);
   };
 
-  const collectChain = (root: FluxionModule) => {
+  const collectChain = (root: LoadedModule) => {
     const chain = new Set([root]);
     // a Set visits what is added while iterating, and the `has` check built into it stops cycles
     for (const m of chain) {
@@ -191,12 +164,12 @@ export function fluxionRequire(absolutePath: string, options: FluxionRequireOpti
     return chain;
   };
 
-  const isStale = (m: FluxionModule) => cache.get(m.filename) !== m || isChanged(m);
+  const isStale = (m: LoadedModule) => cache.get(m.filename) !== m || isChanged(m);
 
-  const loadFresh = (file: string): FluxionModule => {
+  const loadFresh = (file: string): LoadedModule => {
     // Read before the file is, so an edit in between is seen as a change next time instead of being missed
     const { mtimeMs, size } = statSync(file);
-    const mod: FluxionModule = { id: file, filename: file, exports: {}, mtimeMs, size, deps: new Map() };
+    const mod: LoadedModule = { id: file, filename: file, exports: {}, mtimeMs, size, deps: new Map() };
     // Registered before it runs, so a circular import sees the partial exports instead of looping
     cache.set(file, mod);
     try {
@@ -208,7 +181,7 @@ export function fluxionRequire(absolutePath: string, options: FluxionRequireOpti
     return mod;
   };
 
-  const evaluate = (file: string, mod: FluxionModule) => {
+  const evaluate = (file: string, mod: LoadedModule) => {
     const ext = extname(file);
     if (ext === '.json') {
       mod.exports = JSON.parse(readFileSync(file, 'utf8'));
@@ -224,7 +197,7 @@ export function fluxionRequire(absolutePath: string, options: FluxionRequireOpti
     fn.call(mod.exports, mod.exports, createModuleRequire(mod), mod, file, dirname(file));
   };
 
-  const createModuleRequire = (from: FluxionModule) => {
+  const createModuleRequire = (from: LoadedModule) => {
     const native = createRequire(from.filename);
     const locate = (specifier: string) =>
       isBare(specifier) ? undefined : findFile(resolve(dirname(from.filename), specifier));

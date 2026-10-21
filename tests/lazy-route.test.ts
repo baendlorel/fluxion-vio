@@ -84,8 +84,13 @@ describe('lazy route — empty start', () => {
   });
 });
 
-describe('lazy route — no cache', () => {
-  test('loads a fresh module on every call', async () => {
+// Pin the mtime: two writes within the timer resolution of a filesystem can share one
+const T0 = 1_700_000_000;
+const stamp = (dir: string, relativePath: string, n: number) =>
+  fs.utimesSync(path.join(dir, relativePath), T0 + n, T0 + n);
+
+describe('lazy route — reload on change', () => {
+  test('returns the same module while the file is unchanged', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
@@ -95,53 +100,87 @@ describe('lazy route — no cache', () => {
     expect(get1).toBeDefined();
     expect(get1!.handler).toBeTypeOf('function');
 
-    // Re-reads the file, so a new module object each time
     const get2 = await cx.router(new URL('http://local/greeting.ts'));
-    expect(get2).toBeDefined();
-    expect(get2).not.toBe(get1);
+    expect(get2).toBe(get1);
   });
 
-  test('picks up file changes without an mtime comparison', async () => {
+  test('picks up file changes', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
-    // Write initial version
     writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 1 }) };\n');
+    stamp(dir, 'counter.ts', 0);
 
-    // Verify initial response
     await startWorkerServer(cx);
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/counter.ts`)).toEqual({
       status: 200,
       body: { value: 1 },
     });
 
-    // Update file content
-    writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 2 }) };\n');
+    writeApi(dir, 'counter.ts', 'exports.default = { type: 0, handler: () => ({ value: 22 }) };\n');
+    stamp(dir, 'counter.ts', 1);
 
-    // Resolve re-reads the file from disk
-    const module2 = await cx.router(new URL('http://local/counter.ts'));
-    expect(module2).toBeDefined();
-
-    // Response should now reflect the new version
     expect(await requestJson(`http://127.0.0.1:${cx.options.port}/counter.ts`)).toEqual({
       status: 200,
-      body: { value: 2 },
+      body: { value: 22 },
     });
   });
 
-  test('re-evaluates module state on every request', async () => {
+  test('picks up a change in a file the handler imports', async () => {
     const dir = makeTempDir();
     const cx = makeContext(dir);
 
-    writeApi(dir, 'cachecheck.ts', 'exports.default = { type: 0, handler: () => ({ n: Math.random() }) };\n');
+    writeApi(dir, 'lib/answer.ts', 'export const answer = 1;\n');
+    writeApi(
+      dir,
+      'uses-lib.ts',
+      "import { answer } from './lib/answer';\nexports.default = { type: 0, handler: () => ({ answer }) };\n",
+    );
+    stamp(dir, 'lib/answer.ts', 0);
+    stamp(dir, 'uses-lib.ts', 0);
 
-    const m1 = await cx.router(new URL('http://local/cachecheck.ts'));
-    const m2 = await cx.router(new URL('http://local/cachecheck.ts'));
-    const m3 = await cx.router(new URL('http://local/cachecheck.ts'));
+    await startWorkerServer(cx);
+    expect((await requestJson(`http://127.0.0.1:${cx.options.port}/uses-lib.ts`)).body).toEqual({ answer: 1 });
 
-    expect(m1).toBeDefined();
-    expect(m1).not.toBe(m2);
-    expect(m2).not.toBe(m3);
+    writeApi(dir, 'lib/answer.ts', 'export const answer = 42;\n');
+    stamp(dir, 'lib/answer.ts', 1);
+
+    expect((await requestJson(`http://127.0.0.1:${cx.options.port}/uses-lib.ts`)).body).toEqual({ answer: 42 });
+  });
+
+  test('keeps module state while nothing changed, and drops it when something did', async () => {
+    const dir = makeTempDir();
+    const cx = makeContext(dir);
+
+    const source = (label: string) =>
+      `let n = 0;\nexports.default = { type: 0, handler: () => ({ ${label}: ++n }) };\n`;
+    writeApi(dir, 'state.ts', source('n'));
+    stamp(dir, 'state.ts', 0);
+
+    await startWorkerServer(cx);
+    const url = `http://127.0.0.1:${cx.options.port}/state.ts`;
+    expect((await requestJson(url)).body).toEqual({ n: 1 });
+    expect((await requestJson(url)).body).toEqual({ n: 2 });
+
+    writeApi(dir, 'state.ts', source('count'));
+    stamp(dir, 'state.ts', 1);
+    expect((await requestJson(url)).body).toEqual({ count: 1 });
+  });
+
+  test('a deleted file is a 404 and a recreated one is served again', async () => {
+    const dir = makeTempDir();
+    const cx = makeContext(dir);
+
+    writeApi(dir, 'gone.ts', "exports.default = { type: 0, handler: () => ({ v: 'a' }) };\n");
+    await startWorkerServer(cx);
+    const url = `http://127.0.0.1:${cx.options.port}/gone.ts`;
+    expect((await requestJson(url)).status).toBe(200);
+
+    fs.rmSync(path.join(dir, 'gone.ts'));
+    expect((await requestJson(url)).status).toBe(404);
+
+    writeApi(dir, 'gone.ts', "exports.default = { type: 0, handler: () => ({ v: 'bb' }) };\n");
+    expect(await requestJson(url)).toEqual({ status: 200, body: { v: 'bb' } });
   });
 });
 

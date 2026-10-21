@@ -22,7 +22,7 @@ const waiter = (mainPromise: Promise<any>, timeoutMs: number, flag: symbol) =>
  * Modules without a disposer are left untouched.
  */
 function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: NormalizedModule) {
-  // Each request loads its own module instance, so the disposer must run for this instance only.
+  // The module instance is shared by requests while its files are unchanged: the disposer runs once per response.
   if (typeof m.disposer !== 'function') {
     return;
   }

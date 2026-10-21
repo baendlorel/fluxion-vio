@@ -23,7 +23,7 @@
 
 Fluxion Vio is a Node.js server framework with these core concepts:
 
-- **Lazy loading**: API handler modules are read from disk on every request — no module cache, no file watcher. Edits take effect immediately.
+- **Lazy loading**: API handler modules are loaded from disk when requested and reloaded as soon as the handler or a file it imports under `dir` changes (mtime or size) — no file watcher. Edits take effect immediately.
 - **Filesystem routing**: files under a `dir` directory become HTTP routes. The file path IS the URL path.
 - **Single-process architecture**: Fluxion Vio runs as a single process. Vio has no built-in clustering or daemon supervisor; use pm2, docker, systemd, or kubernetes when you need more.
 - **API handlers**: TypeScript/JavaScript files matching `apiInclude` patterns (default: `**/*.ts`) are loaded as handler modules.
@@ -464,14 +464,14 @@ await fluxion({
 
 ### Lazy loading behavior
 
-Fluxion Vio does **not** cache modules. Every request re-reads the handler file from disk. Before loading, every `require.cache` entry located under `dir` is dropped, so the module and all of its imports from `dir` are re-evaluated. Imports resolved from `node_modules` stay cached:
+Fluxion Vio checks the handler file on every request. If neither it nor any file it imports from `dir` changed (mtime and size), the module loaded earlier is reused. Otherwise the module and everything it imported from `dir` is re-evaluated. Imports resolved from `node_modules` stay cached:
 
 ```ts
 // File: dynamic/counter.ts
 export default defineFluxionModule(async () => {
   return { value: Math.random() };
 });
-// Every request to /counter.ts returns a NEW value
+// The handler runs on every request; the module is only re-evaluated after the file changes
 ```
 
 ---
@@ -497,26 +497,27 @@ export default defineFluxionModule(async () => {
   export default async (req) => { return { ok: true }; };
   ```
 - ❌ **Don't use `console.log`** in handlers — use `cx.logger` for structured, timestamped logs.
-- ❌ **Don't store state in handler modules** — files are re-read on every request, so module-level state is reset each time. Use external stores (Redis, database, etc.).
+- ❌ **Don't rely on module-level state surviving** — it is kept between requests, but reset whenever the handler or a file it imports changes. Use external stores (Redis, database, etc.).
 - ❌ **Don't use `GET`/`HEAD` for body-dependent logic** — body is not parsed for these methods.
 - ❌ **Don't forget file extension in URL** — `/hello.ts` not `/hello`. The extension IS part of the route.
 - ❌ **Don't use the `include` option** — it has been renamed to `apiInclude`/`staticInclude`. Passing `include` will throw an error.
 
 ### Module state is ephemeral
 
-When a file changes, the module is reloaded. Any module-level variables (caches, counters, connections) are reset. Design handlers to be stateless.
+When a file changes, the module is reloaded. Any module-level variables (caches, counters, connections) are reset, and requests in between share them. Design handlers to be stateless.
 
 ### Lazy loading lifecycle
 
-Fluxion Vio uses a lazy loading strategy with **no module cache**:
+Fluxion Vio reloads a module only when its files changed:
 
-1. **Every request** that resolves to an existing file: once, right before the file is served, the router drops every `require.cache` entry located under `dir`, then loads the module from disk. Your handler and the files it imports from `dir` are re-evaluated.
-2. **Dependencies from `node_modules`** (and anything else outside `dir`) stay cached across requests. They are treated as installed code, not as hot-reloaded user code.
-3. **File modification**: picked up automatically on the next request — no `mtime` comparison and no watcher involved.
+1. **First request** for a handler: it is loaded fresh, and the mtime and size of the handler and of every file it imports from `dir` are recorded.
+2. **Later requests**: those files are compared with the disk. If any one has a different mtime or size, the handler and everything it imported are dropped and loaded fresh. If none changed, the loaded module is returned without reading the files. Content is never compared, so an edit that keeps both mtime and size is not noticed.
+3. **Dependencies from `node_modules`** (and anything else outside `dir`) are loaded by Node's own `require` and stay cached for good. They are treated as installed code, not as hot-reloaded user code.
 4. **File deletion**: the path no longer exists on disk, so subsequent requests return `404` — there is no route table to clean up.
 5. **File re-creation**: the recreated file is served immediately on the next request, with no registration step.
+6. **A new file** is only loaded when a request asks for it or a changed file imports it.
 
-The purge runs once per request, only after the request has resolved to an existing file. Requests that 404 (missing file, excluded path, path traversal) do not touch the cache. Matching uses the real path of `dir`, so a symlinked dynamic directory still works.
+Requests that 404 (missing file, excluded path, path traversal) do not touch the loaded modules. A `disposer` runs after every response, on the module instance that served it; that instance is shared by the requests until the next reload.
 
 ### Security features
 

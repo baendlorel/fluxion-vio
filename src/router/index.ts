@@ -4,17 +4,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import { ModuleType, STATIC_CONTENT_TYPES, flags } from '@/common/consts.js';
-import { createCacheRoot, loadFluxionModule, purgeRequireCache } from '@/common/injector.js';
+import { loadFluxionModule } from '@/common/injector.js';
+import type { LoadedModuleCache } from '@/common/loader.js';
 
 /**
  * Resolve a request URL to the module that should handle it.
- * Nothing is registered or cached: the file is read from disk on every call.
+ * Nothing is registered: the file is looked up on every call. API modules are reloaded only when the file or one
+ * of the files it imports has changed (mtime or size).
  */
 export type FluxionRouter = (url: URL) => Promise<NormalizedModule | undefined>;
 
 export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): FluxionRouter {
-  // Computed once: the cache prefix never changes for a given router.
-  const cacheRoot = createCacheRoot(cx.options.dir);
+  const cache: LoadedModuleCache = new Map();
 
   return async (url) => {
     const relativePath = url.pathname.replace(/^[/]+/, '').replace(/[/]+$/, '');
@@ -37,13 +38,8 @@ export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): Fl
       return undefined;
     }
 
-    // One purge per request, right before the file is served: user files are re-read from disk,
-    // while dependencies from node_modules stay cached.
-    purgeRequireCache(cacheRoot);
-
-    // API handlers are re-read from disk on every request
     if (cx.options.apiInclude.some((p) => minimatch(relativePath, p))) {
-      return loadFluxionModule(cx, absolutePath, stat);
+      return loadFluxionModule(cx, absolutePath, stat, cache);
     }
 
     if (cx.options.staticInclude.some((p) => minimatch(relativePath, p))) {
