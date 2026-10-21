@@ -59,7 +59,7 @@ const isFile = (path: string) => {
 /**
  * Find the real file behind an extension-less or `.js`-style path, the way esbuild would.
  */
-function findFile(base: string) {
+const findFile = (base: string) => {
   if (isFile(base)) {
     return base;
   }
@@ -81,9 +81,9 @@ function findFile(base: string) {
       return join(base, 'index' + e);
     }
   }
-}
+};
 
-function compile(file: string) {
+const compile = (file: string) => {
   const { outputFiles } = buildSync({
     entryPoints: [file],
     bundle: false,
@@ -104,18 +104,8 @@ function compile(file: string) {
     },
   });
   return outputFiles[0].text;
-}
+};
 
-/**
- * Load a ts/js file under `options.dir`. Local files it imports are loaded the same way, each compiled by esbuild on
- * its own; node_modules, builtins and files outside `dir` go through the native `require`.
- *
- * A file is loaded fresh the first time and its mtime and size are recorded together with those of every file it
- * required. Asking again compares them: if any one differs, the whole chain is dropped and loaded fresh, otherwise
- * the cached exports are returned. Content is never compared.
- *
- * Synchronous, because `require` is. The result is `exports`, so `export default x` is `result.default`.
- */
 export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFluxionOptions, 'dir'>): any {
   const entry = resolve(absolutePath);
   const dir = options.dir;
