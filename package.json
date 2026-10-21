@@ -45,6 +45,7 @@
     "build": "tsx ./scripts/index.ts --build",
     "pub": "tsx ./scripts/index.ts --publish",
     "check": "tsc --noEmit -p tsconfig.build.json",
+    "e2e": "tsx tests/e2e/behavior.ts",
     "test": "vitest",
     "lint": "oxlint ."
   },
