@@ -6,8 +6,9 @@ import { flags } from '@/common/consts.js';
 
 /**
  * Read certificate content from a file path or return the content directly.
+ * Relative paths are resolved against the current working directory.
  */
-function readCertificateContent(content: string | Buffer, moduleDir: string): Buffer {
+function readCertificateContent(content: string | Buffer): Buffer {
   if (Buffer.isBuffer(content)) {
     return content;
   }
@@ -15,7 +16,7 @@ function readCertificateContent(content: string | Buffer, moduleDir: string): Bu
     // Check if it looks like a file path (not a PEM certificate)
     // PEM certificates start with "-----BEGIN"
     if (!content.startsWith('-----BEGIN')) {
-      const filePath = path.isAbsolute(content) ? content : path.join(moduleDir, content);
+      const filePath = path.resolve(content);
       if (fs.existsSync(filePath)) {
         return fs.readFileSync(filePath);
       }
@@ -28,10 +29,7 @@ function readCertificateContent(content: string | Buffer, moduleDir: string): Bu
 /**
  * Normalize HTTPS options.
  */
-function normalizeHttpsOptions(
-  https: FluxionOptions['https'],
-  moduleDir: string,
-): NormalizedFluxionOptions['https'] | undefined {
+function normalizeHttpsOptions(https: FluxionOptions['https']): NormalizedFluxionOptions['https'] | undefined {
   if (!https) {
     return undefined;
   }
@@ -47,15 +45,15 @@ function normalizeHttpsOptions(
   }
 
   const result: NormalizedFluxionOptions['https'] = {
-    key: readCertificateContent(https.key, moduleDir),
-    cert: readCertificateContent(https.cert, moduleDir),
+    key: readCertificateContent(https.key),
+    cert: readCertificateContent(https.cert),
   };
 
   if (https.ca !== undefined) {
     if (Array.isArray(https.ca)) {
-      result.ca = https.ca.map((item) => readCertificateContent(item, moduleDir));
+      result.ca = https.ca.map((item) => readCertificateContent(item));
     } else {
-      result.ca = readCertificateContent(https.ca, moduleDir);
+      result.ca = readCertificateContent(https.ca);
     }
   }
 
@@ -89,7 +87,6 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     handlerTimeoutMs = 5000,
     middlewareTimeoutMs = 3000,
     staticResourceTimeoutMs = 3 * 60 * 1000,
-    moduleDir: rawModuleDir = process.cwd(),
     target = `node${process.versions.node.split('.')[0]}`,
     maxRequestBytes = 8_000_000,
     apiInclude = ['**/*.ts'],
@@ -125,11 +122,6 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
   // Ends with a separator, so "is this file under dir" is a plain `startsWith`
   const resolvedDir = path.resolve(process.cwd(), rawDir);
   const dir = resolvedDir.endsWith(path.sep) ? resolvedDir : resolvedDir + path.sep;
-
-  if (typeof rawModuleDir !== 'string') {
-    throw new FluxionError('FluxionOptions.moduleDir must be a string');
-  }
-  const moduleDir = path.resolve(rawModuleDir);
 
   if (typeof target !== 'string' && !(Array.isArray(target) && target.every((t) => typeof t === 'string'))) {
     throw new FluxionError('FluxionOptions.target must be a string or an array of strings');
@@ -174,14 +166,13 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     handlerTimeoutMs,
     middlewareTimeoutMs,
     staticResourceTimeoutMs,
-    moduleDir,
     target,
     maxRequestBytes,
     logger,
     apiInclude,
     staticInclude,
     exclude,
-    https: normalizeHttpsOptions(https, moduleDir),
+    https: normalizeHttpsOptions(https),
     csp,
     normalizedFlag: flags.OptionsNormalized,
   };

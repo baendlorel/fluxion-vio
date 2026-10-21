@@ -72,12 +72,6 @@ export interface FluxionOptions {
   staticResourceTimeoutMs?: number;
 
   /**
-   * Inject Path that will be used like `path.join(moduleDir,modulepath)`
-   * - default is `process.cwd()`
-   */
-  moduleDir?: string;
-
-  /**
    * esbuild `target` used to compile the files under `dir`, e.g. `'node20'` or `['node20', 'es2022']`.
    * Defaults to the major version of the running Node.js, like `node24`.
    */
@@ -125,6 +119,7 @@ export interface FluxionOptions {
   /**
    * HTTPS server configuration. If provided, the server will use HTTPS instead of HTTP.
    * Both `key` and `cert` are required for HTTPS. `ca` is optional for certificate chains.
+   * Relative paths are resolved against `process.cwd()`.
    */
   https?: {
     /**
@@ -161,7 +156,6 @@ export interface NormalizedFluxionOptions {
   handlerTimeoutMs: number;
   middlewareTimeoutMs: number;
   staticResourceTimeoutMs: number;
-  moduleDir: string;
   target: string | string[];
   maxRequestBytes: number;
   logger: LoggerOption;

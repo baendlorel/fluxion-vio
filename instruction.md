@@ -87,7 +87,7 @@ await fluxion({
 });
 ```
 
-Relative paths are resolved relative to `moduleDir` (default: `process.cwd()`). PEM content can be passed as strings directly.
+Relative paths are resolved relative to `process.cwd()`. PEM content can be passed as strings directly.
 
 ### Custom Logger
 
@@ -372,7 +372,7 @@ interface FluxionOptions {
   logger?: 'one-line' | 'json-line' | FluxionLoggerFn;
 
   // Module system
-  moduleDir?: string;              // Base for relative paths. Default: process.cwd()
+  target?: string | string[];      // esbuild target. Default: `node<major>`
 
   // HTTPS
   https?: {

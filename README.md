@@ -8,477 +8,183 @@
   <img src="assets/fluxion.png" width="240px" alt="Fluxion Vio logo" />
 </p>
 
-**Fluxion Vio** is a branch of [Fluxion v0.20.4](https://github.com/baendlorel/fluxion) — a filesystem-routing dynamic HTTP server for Node.js with PHP-style hot reload.
+**Fluxion Vio** is a branch of [Fluxion v0.20.4](https://github.com/baendlorel/fluxion): a filesystem-routing HTTP server with PHP-style hot reload. The file path is the URL path — edit a file under `dir`, and the next request serves the new code. No build step, no route table, no watcher, no restart.
 
-Vio keeps the parts that make a small service quick to build and quick to ship, and drops the parts that only pay off at scale. It is meant for services with **modest traffic**, **low security requirements**, and **a deadline**: internal tools, admin panels, small APIs, webhooks, prototypes, and side services behind a trusted network.
-
-- **Filesystem routing**: The file path IS the URL path. Drop a `.ts` file, and it becomes an API endpoint.
-- **Lazy loading with hot reload**: Handlers are re-read from disk on every request. No build step, no route registration, no restart.
-- **Static file serving**: Non-API files are served as static resources with automatic content-type detection.
-- **Built-in middleware system**: Sequential middleware execution with timeout support.
-- **HTTP exceptions**: Typed exception classes for clean error handling.
-- **Small by design**: Single process, no clustering, no supervisor daemon, no built-in metadata endpoints.
-- **Same API as Fluxion**: Handler, middleware, and option APIs are unchanged — migration is mostly an import rename.
-
-## Is Vio right for you?
-
-**Good fit**
-
-- Internal tools and admin panels
-- Small APIs and webhook receivers
-- Prototypes, demos, and throwaway services
-- Anything behind a trusted network or reverse proxy
-- Teams that value time-to-production over operational depth
-
-**Poor fit**
-
-- High concurrency or heavy sustained traffic
-- Multi-tenant or public-internet exposure to untrusted users
-- Sensitive data — credentials, payment details, personal data
-- Requirements for clustering, rate limiting, built-in authn/authz, or a supervised daemon
-
-If you need those, use upstream Fluxion with a process manager, or a full-featured framework.
-
-## Differences from Fluxion
-
-Vio is a lean branch, not a rewrite:
-
-| Area                   | Fluxion                 | Fluxion Vio                              |
-| ---------------------- | ----------------------- | ---------------------------------------- |
-| Handler/middleware API | —                       | Identical                                |
-| Options                | —                       | Identical                                |
-| Daemon supervisor      | `launchDaemon` exported | Removed — use pm2, systemd, or container |
-| Process model          | Single process          | Single process                           |
-| Hot reload             | Lazy, mtime-based       | Lazy, uncached — re-read per request     |
-
-Everything documented below applies to both, unless noted otherwise.
+It is meant for **modest traffic** behind a trusted network: internal tools, admin panels, small APIs, webhooks, prototypes. It is **not** a security boundary and not built for high concurrency — for anything public, put a reverse proxy in front.
 
 ## Install
 
 ```bash
 pnpm add fluxion-vio
-pnpm add -D tsx    # Recommended: enables TypeScript hot-reload
 ```
 
-## Quick Start
+`esbuild` ships as a dependency and compiles every file under `dir` on load, so **you do not need `tsx` for your routes**: the entry point may be plain JavaScript while everything under `dir` stays TypeScript.
 
-Create `server.ts`:
+A TypeScript entry point is _not_ compiled by Fluxion — run it with Node ≥ 22.18's built-in type stripping, or with `tsx`.
 
-```ts
+## Quick start
+
+`server.js`:
+
+```js
 import { fluxion } from 'fluxion-vio';
 
-await fluxion({
-  dir: './dynamic',
-  host: '127.0.0.1',
-  port: 3000,
-});
+await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000 });
 ```
 
-Create `dynamic/hello.ts`:
+`dynamic/hello.ts`:
 
 ```ts
 import { defineFluxionModule } from 'fluxion-vio';
 
-export default defineFluxionModule(async (req, cx) => {
+export default defineFluxionModule(async (req) => {
   return { message: 'hello vio', path: req.url.pathname };
 });
 ```
 
-Run:
-
 ```bash
-tsx server.ts
-```
-
-Request:
-
-```bash
+node server.js
 curl http://127.0.0.1:3000/hello.ts
-```
-
-Response:
-
-```json
-{"message":"hello vio","path":"/hello.ts"}
+# {"message":"hello vio","path":"/hello.ts"}
 ```
 
 ## Routing
 
-Files under `dir` become routes based on glob patterns:
-
-- Files matching `apiInclude` (default: `**/*.ts`) are API handlers.
-- Files matching `staticInclude` (default: `**/*`) are static resources.
-- Files matching `exclude` are skipped (default: node_modules, .git, dist, etc.).
-- The file extension IS part of the route.
+- Files matching `apiInclude` (default `**/*.ts`) are API handlers.
+- Files matching `staticInclude` (default `**/*`) are static resources, `GET`/`HEAD` only.
+- Files matching `exclude` are never served.
+- The file extension is part of the route.
 
 | File                      | Route              | Type        |
 | ------------------------- | ------------------ | ----------- |
 | `dynamic/hello.ts`        | `/hello.ts`        | API handler |
 | `dynamic/user/profile.ts` | `/user/profile.ts` | API handler |
 | `dynamic/index.html`      | `/index.html`      | Static file |
-| `dynamic/assets/app.js`   | `/assets/app.js`   | Static file |
 
-## API Handlers
+## API handlers
 
-Every API handler **must** use `defineFluxionModule()`.
-
-### Simple Handler
-
-```ts
-import { defineFluxionModule } from 'fluxion-vio';
-
-export default defineFluxionModule(async (req, cx) => {
-  return { ok: true };
-});
-```
-
-### Handler Arguments
-
-```ts
-handler(req, cx, rawReq, rawRes)
-```
-
-- **`req`** — Normalized request object
-
-  ```ts
-  {
-    method: string;                     // HTTP method
-    ip: string;                         // Client IP
-    url: URL;                           // Parsed URL
-    query: Record<string, string | string[]>;  // Query params
-    body: Record<string, any>;           // Parsed body
-    headers: IncomingHttpHeaders;
-    cookie: Record<string, string>;
-    meta: Record<any, any>;              // Custom metadata (shared across middleware)
-  }
-  ```
-- **`cx`** — Module context `{ logger: FluxionLogger }`
-- **`rawReq`** — Node.js `http.IncomingMessage`
-- **`rawRes`** — Node.js `http.ServerResponse`
-
-### Full Module Configuration
+Handlers must be created with `defineFluxionModule()`; a bare exported function is rejected.
 
 ```ts
 import { defineFluxionModule, defineFluxionMiddleware } from 'fluxion-vio';
 
-const logMiddleware = defineFluxionMiddleware(async (req, cx) => {
-  cx.logger.info('request received', { path: req.url.pathname });
+const auth = defineFluxionMiddleware(async (req, cx, rawReq, rawRes) => {
+  if (!req.headers.authorization) {
+    rawRes.statusCode = 401;
+    rawRes.end('Unauthorized');
+    return; // the handler is not called
+  }
+  req.meta.user = { id: 1 };
 });
 
 export default defineFluxionModule({
-  handler: async (req, cx) => {
-    return { message: 'hello' };
-  },
-  middlewares: [logMiddleware],
-  methods: ['GET', 'POST'],
-  handlerTimeoutMs: 10000,
+  middlewares: [auth],
+  methods: ['GET', 'POST'], // omit to accept every method
+  handlerTimeoutMs: 10_000, // override options.handlerTimeoutMs
+  handler: async (req) => ({ user: req.meta.user }),
   disposer: async () => {
-    // Runs after the response for this request has been sent
+    // runs after the response for this request has been sent
   },
 });
 ```
 
-### Module Options
+Handler signature: `handler(req, cx, rawReq, rawRes)`
 
-```ts
-interface FluxionModule {
-  handler: FluxionHandler;           // Required: main handler function
-  middlewares?: FluxionMiddleware[];  // Optional: middleware array
-  methods?: HTTPMethod[];            // Optional: allowed HTTP methods (default: all)
-  handlerTimeoutMs?: number;         // Optional: handler timeout override
-  disposer?: FluxionDisposer;        // Optional: runs after the response is sent
-}
-```
+| Argument | Contents                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------- |
+| `req`    | `{ method, ip, url, query, body, headers, cookie, meta }` — `meta` is shared with middleware. |
+| `cx`     | `{ logger }`                                                                                  |
+| `rawReq` | Node.js `http.IncomingMessage`                                                                |
+| `rawRes` | Node.js `http.ServerResponse`                                                                 |
+
+Return a value to send `200` + JSON, or write to `rawRes` yourself. If `rawRes.writableEnded` is true, nothing else is sent.
+
+## Request body
+
+Parsed before the handler runs, except for `GET`/`HEAD`:
+
+- `application/json` → the object; primitives become `{ value }`; invalid JSON becomes `{ raw }`.
+- Form data → key/value fields. `text/*` → `{ raw }`. Binary → `{}` (size check only).
+- Bodies over `maxRequestBytes` (default 8 MB) get `413`.
 
 ## Middleware
 
-Middleware runs sequentially **before** the handler. They can modify the request via side effects.
+Run sequentially before the handler, each with `middlewareTimeoutMs` (default 3 s). Side effects on `req` are visible to the next middleware and the handler. Write to `rawRes` and return to short-circuit.
+
+## HTTP exceptions
 
 ```ts
-import { defineFluxionMiddleware, defineFluxionModule } from 'fluxion-vio';
+import { defineFluxionModule, NotFoundException } from 'fluxion-vio';
 
-const authMiddleware = defineFluxionMiddleware(async (req, cx, rawReq, rawRes) => {
-  const token = req.headers.authorization;
-  if (!token) {
-    rawRes.statusCode = 401;
-    rawRes.end('Unauthorized');
-    return;  // Short-circuit: handler won't be called
-  }
-  req.meta.user = await verifyToken(token);
-});
-
-export default defineFluxionModule({
-  handler: async (req) => ({ user: req.meta.user }),
-  middlewares: [authMiddleware],
+export default defineFluxionModule(() => {
+  throw new NotFoundException('nothing here');
 });
 ```
 
-Middleware timeout defaults to **3000ms**. Configure via `middlewareTimeoutMs`.
+`BadRequest` 400 · `Unauthorized` 401 · `Forbidden` 403 · `NotFound` 404 · `MethodNotAllowed` 405 · `NotAcceptable` 406 · `RequestTimeout` 408 · `Conflict` 409 · `Gone` 410 · `PayloadTooLarge` 413 · `UnsupportedMediaType` 415 · `UnprocessableEntity` 422 · `TooManyRequests` 429 · `InternalServerError` 500 · `NotImplemented` 501 · `BadGateway` 502 · `ServiceUnavailable` 503 · `GatewayTimeout` 504
 
-The example above shows *how* to hook in auth — Vio does not ship authentication itself. Small services still need to protect anything that isn't meant to be public.
+(each is exported as `<Name>Exception`). Uncaught errors return a generic `500`; details are never sent to the client.
 
-## HTTP Exceptions
+## Hot reload
 
-Throw these in handlers or middleware for clean error responses:
+Every request resolves its file from disk, so there is no route table to refresh and no watcher:
 
-```ts
-import { defineFluxionModule, NotFoundException, BadRequestException } from 'fluxion-vio';
+- Modules are loaded on demand and remembered together with the `mtime` and `size` of the file and of every file it imports from `dir`.
+- On the next request those are compared. If any one differs, the whole chain is dropped and re-evaluated; otherwise the loaded module is reused without reading anything.
+- Content is never compared, so an edit that keeps both `mtime` and `size` goes unnoticed.
+- Packages from `node_modules` and files outside `dir` go through Node's own `require` and stay cached. Files outside `dir` are therefore **not** compiled: a TS helper placed there relies on Node's built-in type stripping (no `enum`, `namespace`, or decorators).
+- A deleted file means `404`; recreating it serves it immediately. A new file is loaded only when a request asks for it or a changed file starts importing it.
 
-export default defineFluxionModule(async (req) => {
-  if (!req.query.id) {
-    throw new BadRequestException('Missing id parameter');
-  }
-
-  const user = await db.findUser(req.query.id);
-  if (!user) {
-    throw new NotFoundException('User not found');
-  }
-
-  return { user };
-});
-```
-
-| Class                           | Status |
-| ------------------------------- | ------ |
-| `BadRequestException`           | 400    |
-| `UnauthorizedException`         | 401    |
-| `ForbiddenException`            | 403    |
-| `NotFoundException`             | 404    |
-| `MethodNotAllowedException`     | 405    |
-| `NotAcceptableException`        | 406    |
-| `RequestTimeoutException`       | 408    |
-| `ConflictException`             | 409    |
-| `GoneException`                 | 410    |
-| `PayloadTooLargeException`      | 413    |
-| `UnsupportedMediaTypeException` | 415    |
-| `UnprocessableEntityException`  | 422    |
-| `TooManyRequestsException`      | 429    |
-| `InternalServerErrorException`  | 500    |
-| `NotImplementedException`       | 501    |
-| `BadGatewayException`           | 502    |
-| `ServiceUnavailableException`   | 503    |
-| `GatewayTimeoutException`       | 504    |
-
-## Request Body
-
-Fluxion Vio parses request bodies before calling handlers (except for `GET` and `HEAD`).
-
-- **JSON** (`application/json`): objects assigned directly; primitives become `{ value }`; invalid JSON becomes `{ raw }`
-- **Form data** (`multipart/form-data`, `application/x-www-form-urlencoded`): parsed into key/value fields
-- **Text** (`text/*`): stored as `{ raw }`
-- **Binary**: read for size check; body remains `{}`
-
-Requests larger than `maxRequestBytes` (default: 8MB) return `413 Payload Too Large`.
-
-## Response Behavior
-
-Returning a value produces a `200 OK` JSON response:
-
-```ts
-export default defineFluxionModule(async () => {
-  return { ok: true };
-});
-```
-
-```
-HTTP/1.1 200 OK
-Content-Type: application/json; charset=utf-8
-
-{"ok":true}
-```
-
-Write directly to `rawRes` for custom responses:
-
-```ts
-export default defineFluxionModule(async (_req, _cx, _rawReq, res) => {
-  res.statusCode = 201;
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.end('created');
-});
-```
-
-When `res.writableEnded` is true, Fluxion Vio will not send another response.
-
-## Static Files
-
-Non-API files are served as static resources. Supported methods: `GET`, `HEAD`. Other methods return `405 Method Not Allowed`.
-
-Known content types: `.html`, `.css`, `.js`, `.json`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.txt`, `.webp`, `.ico`, `.map`. Unknown extensions use `application/octet-stream`.
-
-## Lazy Loading
-
-Fluxion Vio uses a **lazy loading** strategy:
-
-- Files are loaded on demand when a request arrives.
-- No module cache for your own files: once a request resolves to an existing file, entries under `dir` are dropped from `require.cache` before it is loaded, so the handler and the files it imports from `dir` are re-evaluated. Requests that end in `404` do not purge anything.
-- Packages from `node_modules` stay cached — they are installed dependencies, not hot-reloaded code.
-- If the file is deleted, subsequent requests return `404` — there is no route table to update.
-- No file watcher runs at runtime.
-
-This means:
-
-- **Fast startup**: No initial file scanning.
-- **Automatic hot-reload**: Edit any file in `dir`, and the next request picks up the change — even with the same `mtime`.
-- **No watcher overhead**: No CPU/memory usage for file watching.
-- **Cheap dependency imports**: Requiring a package on the first request is the only time you pay for it; later requests reuse the cached dependency.
-- **Slower requests**: Each API request still pays for re-parsing your own handler files; fine for low-traffic services, not for high throughput.
-
-Reason:
-
-In watch mode, frequent file modifications and creation
-of temporary files by AI Agents can **block the main process**, preventing
-interface files from being loaded correctly (i.e., the "watch failure"
-issue).
-
-## Health checks
-
-Fluxion Vio intentionally ships **no built-in metadata endpoints** (no `/_vio/*` routes) — nothing about the server is exposed automatically. Implement health checks yourself as ordinary API handlers, controlling the path, the auth, and exactly what gets exposed:
-
-```ts
-// healthz.ts — placed in your dynamic dir, served like any other route
-import { defineFluxionModule } from 'fluxion-vio';
-
-export default defineFluxionModule({
-  handler: () => ({
-    ok: true,
-    now: Date.now(),
-    uptimeSeconds: Number(process.uptime().toFixed(3)),
-  }),
-});
-```
+Module-level state survives between requests until a reload resets it — keep handlers stateless.
 
 ## Options
 
 ```ts
 interface FluxionOptions {
-  dir: string;                     // Required: dynamic directory
-  host: string;                    // Required: bind address
-  port: number;                    // Required: HTTP port
+  dir: string; // route directory, created if missing
+  host: string;
+  port: number;
 
-  // Timeouts
-  handlerTimeoutMs?: number;       // Default: 5000ms
-  middlewareTimeoutMs?: number;    // Default: 3000ms
-  staticResourceTimeoutMs?: number; // Default: 180000ms (3 min)
+  handlerTimeoutMs?: number; // 5000
+  middlewareTimeoutMs?: number; // 3000
+  staticResourceTimeoutMs?: number; // 180000
 
-  // File patterns
-  apiInclude?: string[];           // Default: ['**/*.ts']
-  staticInclude?: string[];        // Default: ['**/*']
-  exclude?: string[];              // Overrides built-in ignore list
+  apiInclude?: string[]; // ['**/*.ts']
+  staticInclude?: string[]; // ['**/*']
+  exclude?: string[]; // node_modules, .git, dist, ...
 
-  // Request handling
-  maxRequestBytes?: number;        // Default: 8_000_000
-
-  // Logging
-  logger?: 'one-line' | 'json-line' | FluxionLoggerFn; // Default: 'one-line'
-
-  // Module system
-  moduleDir?: string;              // Default: process.cwd()
-
-  // HTTPS
-  https?: {
-    key: string | Buffer;
-    cert: string | Buffer;
-    ca?: string | Buffer | Array<string | Buffer>;
-  };
-
-  // Security
-  csp?: string | false;            // Default: "default-src 'self'". false omits the header.
+  maxRequestBytes?: number; // 8_000_000
+  logger?: 'one-line' | 'json-line' | ((entry) => void); // 'one-line'
+  target?: string | string[]; // esbuild target, default 'node<major>'
+  https?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer | Array<string | Buffer> };
+  csp?: string | false; // "default-src 'self'"; false omits the header
 }
 ```
 
-### HTTPS
-
-```ts
-fluxion({
-  dir: './dynamic',
-  host: '0.0.0.0',
-  port: 443,
-  https: {
-    key: './certs/private-key.pem',
-    cert: './certs/certificate.pem',
-    ca: './certs/ca-bundle.crt',  // Optional
-  },
-});
-```
-
-Relative paths are resolved relative to `moduleDir`. PEM content can be passed directly.
-
-For small services, terminating TLS at a reverse proxy (Caddy, nginx, a tunnel) is often simpler than managing certificates in-process.
-
-### Custom Logger
-
-```ts
-import { fluxion, defineFluxionLogger } from 'fluxion-vio';
-
-const myLogger = defineFluxionLogger((entry) => {
-  console.log(JSON.stringify(entry));
-});
-
-await fluxion({
-  dir: './dynamic',
-  host: 'localhost',
-  port: 3000,
-  logger: myLogger,
-});
-```
+`https.key`/`cert`/`ca` accept PEM content or a path relative to the current working directory. For small services, terminating TLS at a reverse proxy is usually simpler.
 
 ## Security
 
-Vio targets trusted environments. It inherits Fluxion's baseline hardening, but **it is not a security boundary**:
-
-- **Path traversal protection**: Requests are validated to ensure the resolved path stays within the configured directory.
-- **Security headers**: All responses include `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, and `Content-Security-Policy: default-src 'self'`. Override with the `csp` option, or pass `csp: false` to omit it.
-- **Error message sanitization**: Internal error details are never leaked to clients.
-- **Cookie limits**: Maximum 100 cookies per request.
-
-What Vio does **not** provide: authentication, authorization, CSRF protection, rate limiting, request signing, audit logging, or sandboxing of handler code. Handlers run with full Node.js privileges and can read and write anything the process can.
-
-Practical guidance:
-
-- Bind to `127.0.0.1` or a private interface unless the service is meant to be public.
-- Put a reverse proxy in front for TLS, access control, and rate limiting.
-- Keep secrets out of the dynamic directory — it is web-served by default.
-- Never expose the service directly to the public internet without your own auth layer.
+Every response gets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, and a CSP header; path traversal outside `dir` is rejected. Beyond that Vio provides no authentication, authorization, CSRF protection, rate limiting, or sandboxing — handlers run with full Node.js privileges. Bind to a private interface, keep secrets out of `dir` (it is web-served by default), and never expose the server directly to the internet.
 
 ## Deployment
 
-Vio has no built-in daemon supervisor (upstream Fluxion's `launchDaemon` was removed). Use a normal process manager:
+Single process, no supervisor. Use pm2, systemd, Docker, or a similar manager:
 
 ```bash
-# pm2
-pm2 start "tsx server.ts" --name fluxion-vio-app
-
-# systemd
-# ExecStart=/usr/local/bin/tsx /srv/fluxion-vio/server.ts
-
-# Docker
-docker run -p 3000:3000 fluxion-vio-app
+pm2 start "node server.js" --name fluxion-vio-app
 ```
 
-Because Vio is aimed at low-traffic services, a single process is usually enough. If you need clustering, run several instances behind a proxy, or switch to upstream Fluxion.
+Need clustering? Run several instances behind a proxy, or use upstream Fluxion.
 
 ## Migrating from Fluxion
 
-The APIs are identical. To move:
+The APIs are identical; rename the package and import specifier, and replace `launchDaemon` with a process manager.
 
-1. Replace the package and import specifier:
-
-   ```diff
-   - pnpm add fluxion-ts
-   + pnpm add fluxion-vio
-   ```
-
-   ```diff
-   - import { fluxion } from 'fluxion-ts';
-   + import { fluxion } from 'fluxion-vio';
-   ```
-
-2. Remove any use of `launchDaemon` and run the process under pm2, systemd, or a container instead.
-
-## Build and Test
+## Development
 
 ```bash
-pnpm build
-pnpm test
-pnpm lint
+pnpm build   # bundle with tsdown
+pnpm test    # vitest
+pnpm lint    # oxlint
 ```
