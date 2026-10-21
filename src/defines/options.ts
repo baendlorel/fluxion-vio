@@ -2,6 +2,7 @@ import { FluxionError } from '@/common/error.js';
 import type { FluxionOptions, NormalizedFluxionOptions } from '@/types.js';
 import fs from 'node:fs';
 import path from 'node:path';
+
 import { flags } from '@/common/consts.js';
 
 /**
@@ -159,7 +160,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  return {
+  const result = {
     dir,
     host,
     port,
@@ -176,4 +177,10 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     csp,
     normalizedFlag: flags.OptionsNormalized,
   };
+
+  if (process.argv.includes('--verbose')) {
+    console.log('normalized options', { ...result, https: result.https ? 'set' : 'unset' });
+  }
+
+  return result;
 }
