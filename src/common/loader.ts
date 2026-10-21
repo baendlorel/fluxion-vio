@@ -20,9 +20,9 @@ export interface LoadedModule {
 }
 
 /**
- * Owned by the caller, keyed by absolute path. The loader keeps no state of its own.
+ * Every loaded module, keyed by absolute path, shared by all fluxion instances. Delete an entry to force a reload.
  */
-export type LoadedModuleCache = Map<string, LoadedModule>;
+export const moduleCache = new Map<string, LoadedModule>();
 
 const NODE_MODULES = `${sep}node_modules${sep}`;
 
@@ -110,18 +110,13 @@ function compile(file: string) {
  * Load a ts/js file under `options.dir`. Local files it imports are loaded the same way, each compiled by esbuild on
  * its own; node_modules, builtins and files outside `dir` go through the native `require`.
  *
- * With a `cache`, a file is loaded fresh the first time and its mtime and size are recorded together with those of
- * every file it required. Asking again compares them: if any one differs, the whole chain is dropped and loaded
- * fresh, otherwise the cached exports are returned. Content is never compared. Without a `cache`, nothing survives
- * the call.
+ * A file is loaded fresh the first time and its mtime and size are recorded together with those of every file it
+ * required. Asking again compares them: if any one differs, the whole chain is dropped and loaded fresh, otherwise
+ * the cached exports are returned. Content is never compared.
  *
  * Synchronous, because `require` is. The result is `exports`, so `export default x` is `result.default`.
  */
-export function fluxionRequire(
-  absolutePath: string,
-  options: Pick<NormalizedFluxionOptions, 'dir'>,
-  cache: LoadedModuleCache = new Map(),
-): any {
+export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFluxionOptions, 'dir'>): any {
   const entry = resolve(absolutePath);
   const dir = options.dir;
 
@@ -135,7 +130,7 @@ export function fluxionRequire(
    * Return the cached module if nothing in its chain changed, otherwise drop the chain and load it fresh.
    */
   const load = (file: string): LoadedModule => {
-    const cached = cache.get(file);
+    const cached = moduleCache.get(file);
     if (cached === undefined) {
       return loadFresh(file);
     }
@@ -146,8 +141,8 @@ export function fluxionRequire(
     }
     for (const m of chain) {
       // A newer instance of the same path may have been loaded by someone else meanwhile: that one is fine, keep it
-      if (cache.get(m.filename) === m) {
-        cache.delete(m.filename);
+      if (moduleCache.get(m.filename) === m) {
+        moduleCache.delete(m.filename);
       }
     }
     return loadFresh(file);
@@ -164,18 +159,18 @@ export function fluxionRequire(
     return chain;
   };
 
-  const isStale = (m: LoadedModule) => cache.get(m.filename) !== m || isChanged(m);
+  const isStale = (m: LoadedModule) => moduleCache.get(m.filename) !== m || isChanged(m);
 
   const loadFresh = (file: string): LoadedModule => {
     // Read before the file is, so an edit in between is seen as a change next time instead of being missed
     const { mtimeMs, size } = statSync(file);
     const mod: LoadedModule = { id: file, filename: file, exports: {}, mtimeMs, size, deps: new Map() };
     // Registered before it runs, so a circular import sees the partial exports instead of looping
-    cache.set(file, mod);
+    moduleCache.set(file, mod);
     try {
       evaluate(file, mod);
     } catch (e) {
-      cache.delete(file);
+      moduleCache.delete(file);
       throw e;
     }
     return mod;
