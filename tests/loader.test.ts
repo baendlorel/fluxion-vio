@@ -2,7 +2,15 @@ import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fluxionRequire, moduleCache as cache } from '../src/common/loader.js';
+import { FluxionLoader, moduleCache as cache } from '../src/common/loader.js';
+import { defineFluxionOptions } from '../src/defines/options.js';
+import type { FluxionOptions } from '../src/types.js';
+
+const normalize = (dir: string, extra: Partial<FluxionOptions> = {}) =>
+  defineFluxionOptions({ dir, host: '127.0.0.1', port: 3000, ...extra });
+
+// Goes through the real normalization, so `dir` is what the server would hand to the loader
+const fluxionRequire = (file: string, { dir }: { dir: string }) => new FluxionLoader(normalize(dir)).require(file);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fluxion-loader-test-'));
 const g = globalThis as any;
@@ -144,6 +152,43 @@ describe('fluxionRequire scope', () => {
     cache.clear();
     const second = fluxionRequire(entry, { dir }).default;
     expect(await second.lazyDynamic(path.join(dir, 'lazy.ts'))).toBe(2);
+  });
+});
+
+describe('fluxionRequire options', () => {
+  test('dir is normalized to an absolute path ending with a separator', () => {
+    expect(normalize(dir).dir).toBe(dir + path.sep);
+    expect(normalize(dir + path.sep).dir).toBe(dir + path.sep);
+  });
+
+  test('a sibling directory sharing the name prefix is not under dir', () => {
+    write('app-other/sibling.js', `${count('sibling')} module.exports = { n: globalThis.__cnt.sibling };`);
+    write('app/imports-sibling.js', `module.exports = require('../app-other/sibling.js');`);
+    const file = path.join(dir, 'imports-sibling.js');
+
+    fluxionRequire(file, { dir });
+    cache.clear();
+    expect(fluxionRequire(file, { dir })).toEqual({ n: 1 });
+  });
+
+  test('target defaults to the running Node.js major version', () => {
+    expect(normalize(dir).target).toBe(`node${process.versions.node.split('.')[0]}`);
+  });
+
+  test('target is passed to esbuild', () => {
+    const file = write('app/plain.ts', 'export const v = 1;');
+    const load = (target: FluxionOptions['target']) => new FluxionLoader(normalize(dir, { target })).require(file);
+
+    expect(load('node20').v).toBe(1);
+    cache.clear();
+    expect(load(['node20', 'es2022']).v).toBe(1);
+    cache.clear();
+    expect(() => load('not-a-target')).toThrow(/target/i);
+  });
+
+  test('target must be a string or an array of strings', () => {
+    expect(() => normalize(dir, { target: 20 as any })).toThrow('target');
+    expect(() => normalize(dir, { target: ['node20', 20 as any] })).toThrow('target');
   });
 });
 

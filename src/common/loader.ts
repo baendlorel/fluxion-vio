@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import type { NormalizedFluxionOptions } from '@/types.js';
 
 /**
- * A module loaded by `fluxionRequire`. `deps` holds the instances it required, so a stale dependency shows up
+ * A module loaded by `FluxionLoader`. `deps` holds the instances it required, so a stale dependency shows up
  * even when the cache has already been refilled.
  */
 export interface LoadedModule {
@@ -83,50 +83,65 @@ const findFile = (base: string) => {
   }
 };
 
-const compile = (file: string) => {
-  const { outputFiles } = buildSync({
-    entryPoints: [file],
-    bundle: false,
-    write: false,
-    platform: 'node',
-    format: 'cjs',
-    // TODO 这里最好能配置
-    target: 'node24',
-    sourcemap: 'inline',
-    sourcesContent: false,
-    logLevel: 'silent',
-    // `import(x)` becomes `require(x)`, because a vm function has no way to run a native dynamic import
-    supported: { 'dynamic-import': false },
-    define: {
-      'import.meta.url': JSON.stringify(pathToFileURL(file).href),
-      'import.meta.filename': JSON.stringify(file),
-      'import.meta.dirname': JSON.stringify(dirname(file)),
-    },
-  });
-  return outputFiles[0].text;
-};
+/**
+ * Load a ts/js file under `options.dir`. Local files it imports are loaded the same way, each compiled by esbuild on
+ * its own; node_modules, builtins and files outside `dir` go through the native `require`.
+ *
+ * A file is loaded fresh the first time and its mtime and size are recorded together with those of every file it
+ * required. Asking again compares them: if any one differs, the whole chain is dropped and loaded fresh, otherwise
+ * the cached exports are returned. Content is never compared.
+ *
+ * Synchronous, because `require` is. `require()` returns `exports`, so `export default x` is `result.default`.
+ */
+export class FluxionLoader {
+  private readonly opts: Pick<NormalizedFluxionOptions, 'dir' | 'target'>;
 
-export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFluxionOptions, 'dir'>): any {
-  const entry = resolve(absolutePath);
-  const dir = options.dir;
+  constructor(options: Pick<NormalizedFluxionOptions, 'dir' | 'target'>) {
+    this.opts = options;
+  }
 
-  const dirPrefix = dir.endsWith(sep) ? dir : dir + sep;
-  const isHot = (file: string) => {
+  private compile(file: string) {
+    const { outputFiles } = buildSync({
+      entryPoints: [file],
+      bundle: false,
+      write: false,
+      platform: 'node',
+      format: 'cjs',
+      target: this.opts.target,
+      sourcemap: 'inline',
+      sourcesContent: false,
+      logLevel: 'silent',
+      // `import(x)` becomes `require(x)`, because a vm function has no way to run a native dynamic import
+      supported: { 'dynamic-import': false },
+      define: {
+        'import.meta.url': JSON.stringify(pathToFileURL(file).href),
+        'import.meta.filename': JSON.stringify(file),
+        'import.meta.dirname': JSON.stringify(dirname(file)),
+      },
+    });
+    return outputFiles[0].text;
+  }
+
+  require(absolutePath: string): any {
+    return this.load(resolve(absolutePath)).exports;
+  }
+
+  private isHot(file: string) {
     const ext = extname(file);
-    return file.startsWith(dirPrefix) && !file.includes(NODE_MODULES) && (COMPILED.has(ext) || ext === '.json');
-  };
+    return file.startsWith(this.opts.dir) && !file.includes(NODE_MODULES) && (COMPILED.has(ext) || ext === '.json');
+  }
 
   /**
    * Return the cached module if nothing in its chain changed, otherwise drop the chain and load it fresh.
    */
-  const load = (file: string): LoadedModule => {
+  private load(file: string): LoadedModule {
     const cached = moduleCache.get(file);
     if (cached === undefined) {
-      return loadFresh(file);
+      return this.loadFresh(file);
     }
 
-    const chain = collectChain(cached);
-    if (![...chain].some(isStale)) {
+    const chain = this.collectChain(cached);
+    if (!this.anyStale(chain)) {
       return cached;
     }
     for (const m of chain) {
@@ -135,10 +150,10 @@ export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFlu
         moduleCache.delete(m.filename);
       }
     }
-    return loadFresh(file);
-  };
+    return this.loadFresh(file);
+  }
 
-  const collectChain = (root: LoadedModule) => {
+  private collectChain(root: LoadedModule) {
     const chain = new Set([root]);
     // a Set visits what is added while iterating, and the `has` check built into it stops cycles
     for (const m of chain) {
@@ -147,42 +162,52 @@ export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFlu
       }
     }
     return chain;
-  };
+  }
 
-  const isStale = (m: LoadedModule) => moduleCache.get(m.filename) !== m || isChanged(m);
+  private anyStale(chain: Set<LoadedModule>) {
+    for (const m of chain) {
+      if (moduleCache.get(m.filename) !== m || isChanged(m)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
-  const loadFresh = (file: string): LoadedModule => {
+  private loadFresh(file: string): LoadedModule {
     // Read before the file is, so an edit in between is seen as a change next time instead of being missed
     const { mtimeMs, size } = statSync(file);
     const mod: LoadedModule = { id: file, filename: file, exports: {}, mtimeMs, size, deps: new Map() };
     // Registered before it runs, so a circular import sees the partial exports instead of looping
     moduleCache.set(file, mod);
     try {
-      evaluate(file, mod);
+      this.evaluate(file, mod);
     } catch (e) {
       moduleCache.delete(file);
       throw e;
     }
     return mod;
-  };
+  }
 
-  const evaluate = (file: string, mod: LoadedModule) => {
+  private evaluate(file: string, mod: LoadedModule) {
     const ext = extname(file);
     if (ext === '.json') {
       mod.exports = JSON.parse(readFileSync(file, 'utf8'));
       return;
     }
     if (!COMPILED.has(ext)) {
-      throw new Error(`fluxionRequire: unsupported file type "${ext}" (${file})`);
+      throw new Error(`FluxionLoader: unsupported file type "${ext}" (${file})`);
     }
 
-    const fn = compileFunction(compile(file), ['exports', 'require', 'module', '__filename', '__dirname'], {
+    const fn = compileFunction(this.compile(file), ['exports', 'require', 'module', '__filename', '__dirname'], {
       filename: file,
     });
-    fn.call(mod.exports, mod.exports, createModuleRequire(mod), mod, file, dirname(file));
-  };
+    fn.call(mod.exports, mod.exports, this.createModuleRequire(mod), mod, file, dirname(file));
+  }
 
-  const createModuleRequire = (from: LoadedModule) => {
+  /**
+   * The only closure left per module, and it is made once per fresh load: it has to remember which module is asking.
+   */
+  private createModuleRequire(from: LoadedModule) {
     const native = createRequire(from.filename);
     const locate = (specifier: string) =>
       isBare(specifier) ? undefined : findFile(resolve(dirname(from.filename), specifier));
@@ -193,10 +218,10 @@ export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFlu
         // builtins, packages and anything that cannot be found; the native require reports the latter
         return native(specifier);
       }
-      if (!isHot(file)) {
+      if (!this.isHot(file)) {
         return native(file);
       }
-      const dep = load(file);
+      const dep = this.load(file);
       // Also recorded for requires made long after loading (`import()` inside a function)
       from.deps.set(file, dep);
       return dep.exports;
@@ -204,7 +229,5 @@ export function fluxionRequire(absolutePath: string, options: Pick<NormalizedFlu
     req.resolve = (specifier: string) => locate(specifier) ?? native.resolve(specifier);
     req.cache = native.cache;
     return req;
-  };
-
-  return load(entry).exports;
+  }
 }

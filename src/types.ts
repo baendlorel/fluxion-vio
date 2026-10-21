@@ -78,6 +78,12 @@ export interface FluxionOptions {
   moduleDir?: string;
 
   /**
+   * esbuild `target` used to compile the files under `dir`, e.g. `'node20'` or `['node20', 'es2022']`.
+   * Defaults to the major version of the running Node.js, like `node24`.
+   */
+  target?: string | string[];
+
+  /**
    * Maximum request body bytes accepted by dynamic handlers.
    * Requests larger than this limit will return 413.
    */
@@ -147,7 +153,7 @@ export interface FluxionOptions {
 
 export interface NormalizedFluxionOptions {
   /**
-   * It's absolute path to the directory where dynamic files will be stored.
+   * It's absolute path to the directory where dynamic files will be stored. It always ends with `path.sep`.
    */
   dir: string;
   host: string;
@@ -156,6 +162,7 @@ export interface NormalizedFluxionOptions {
   middlewareTimeoutMs: number;
   staticResourceTimeoutMs: number;
   moduleDir: string;
+  target: string | string[];
   maxRequestBytes: number;
   logger: LoggerOption;
   apiInclude: string[];

@@ -90,6 +90,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     middlewareTimeoutMs = 3000,
     staticResourceTimeoutMs = 3 * 60 * 1000,
     moduleDir: rawModuleDir = process.cwd(),
+    target = `node${process.versions.node.split('.')[0]}`,
     maxRequestBytes = 8_000_000,
     apiInclude = ['**/*.ts'],
     staticInclude = ['**/*'],
@@ -121,12 +122,18 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
   if (typeof rawDir !== 'string') {
     throw new FluxionError('FluxionOptions.dir must be a string');
   }
-  const dir = path.resolve(process.cwd(), rawDir);
+  // Ends with a separator, so "is this file under dir" is a plain `startsWith`
+  const resolvedDir = path.resolve(process.cwd(), rawDir);
+  const dir = resolvedDir.endsWith(path.sep) ? resolvedDir : resolvedDir + path.sep;
 
   if (typeof rawModuleDir !== 'string') {
     throw new FluxionError('FluxionOptions.moduleDir must be a string');
   }
   const moduleDir = path.resolve(rawModuleDir);
+
+  if (typeof target !== 'string' && !(Array.isArray(target) && target.every((t) => typeof t === 'string'))) {
+    throw new FluxionError('FluxionOptions.target must be a string or an array of strings');
+  }
 
   if (typeof host !== 'string') {
     throw new FluxionError('FluxionOptions.host must be a string');
@@ -168,6 +175,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     middlewareTimeoutMs,
     staticResourceTimeoutMs,
     moduleDir,
+    target,
     maxRequestBytes,
     logger,
     apiInclude,

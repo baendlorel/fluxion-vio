@@ -3,7 +3,7 @@ import type { FluxionContext, NormalizedModule } from '@/types.js';
 import type { Stats } from 'node:fs';
 import { static_cast } from 'type-narrow';
 import { ModuleType } from './consts.js';
-import { fluxionRequire } from './loader.js';
+import { FluxionLoader } from './loader.js';
 
 function isFluxionModule(cx: Pick<FluxionContext, 'options' | 'logger'>, o: unknown): o is NormalizedModule {
   if (typeof o !== 'object' || o === null) {
@@ -41,7 +41,9 @@ export function loadFluxionModule(
   absolutePath: string,
   stat: Stats,
 ): NormalizedModule {
-  let m = fluxionRequire(absolutePath, cx.options);
+  const loader = new FluxionLoader(cx.options);
+
+  let m = loader.require(absolutePath);
   if (isFluxionModule(cx, m.default)) {
     m = m.default;
   } else if (isFluxionModule(cx, m)) {
