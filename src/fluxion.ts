@@ -8,6 +8,7 @@ import { createRouter } from './router/index.js';
 
 /**
  * Creates a fluxion-vio server instance.
+ * @package Fluxion Vio
  * @version __VERSION__
  */
 export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions) {
