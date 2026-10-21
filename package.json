@@ -63,6 +63,7 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
+    "esbuild": "^0.28.0",
     "fast-json-stable-stringify": "^2.1.0",
     "minimatch": "^10.2.5",
     "tsx": "^4.22.4"
