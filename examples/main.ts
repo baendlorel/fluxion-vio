@@ -1,4 +1,4 @@
-import { fluxion } from '../src/fluxion.js';
+import { fluxion } from '../dist/index.mjs';
 
 fluxion({
   dir: process.env.DYNAMIC_DIRECTORY ?? 'examples/hotapis',
