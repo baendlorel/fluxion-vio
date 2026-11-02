@@ -113,15 +113,15 @@ Run sequentially before the handler, each with `middlewareTimeoutMs` (default 3 
 
 ## Logging
 
-Logs are JSON Lines by default: one JSON object per line on stdout, with `timestamp`, `level` and `action` fields.
+Logs are JSON Lines by default: one JSON object per line on stdout, with `timestamp`, `level` and `event` fields.
 
 ```ts
-cx.logger.info('request'); // {"timestamp":"…","level":"INFO","action":"request"}
-cx.logger.warn({ action: 'RateLimited', ip: req.ip }); // {"timestamp":"…","level":"WARN","action":"RateLimited","ip":"…"}
+cx.logger.info('request'); // {"timestamp":"…","level":"INFO","event":"request"}
+cx.logger.warn({ event: 'RateLimited', ip: req.ip }); // {"timestamp":"…","level":"WARN","event":"RateLimited","ip":"…"}
 ```
 
-- A primitive payload (`string`, number, boolean, `null`) becomes `action`.
-- An object payload is merged after the defaults, so your own fields can override `timestamp`, `level` or `action`.
+- A primitive payload (`string`, number, boolean, `null`) becomes `event`.
+- An object payload is merged after the defaults, so your own fields can override `timestamp`, `level` or `event`.
 - An `Error` value anywhere in the payload is serialized as `message` + newline + `stack` (plain `JSON.stringify` would give `{}`). Use the exported `formatError(e)` to get the same string yourself.
 
 There is no built-in one-line mode. To get a human-readable format, pass your own logger function:
@@ -129,9 +129,9 @@ There is no built-in one-line mode. To get a human-readable format, pass your ow
 ```ts
 import { fluxion, defineFluxionLogger } from 'fluxion-vio';
 
-const oneLine = defineFluxionLogger(({ timestamp, level, action, ...fields }) => {
+const oneLine = defineFluxionLogger(({ timestamp, level, event, ...fields }) => {
   const rest = Object.keys(fields).length ? ' ' + JSON.stringify(fields) : '';
-  console.log(`[${timestamp}] ${level} ${String(action ?? '')}${rest}`);
+  console.log(`[${timestamp}] ${level} ${String(event ?? '')}${rest}`);
 });
 
 await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000, logger: oneLine });

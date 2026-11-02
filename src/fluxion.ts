@@ -23,7 +23,7 @@ export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions
 
   // Register signal handlers for graceful shutdown
   const shutdown = (signal: NodeJS.Signals) => {
-    context.logger.warn({ action: 'ShuttingDown', pid: process.pid, signal });
+    context.logger.warn({ event: 'ShuttingDown', pid: process.pid, signal });
     server.close(() => process.exit(0));
   };
 

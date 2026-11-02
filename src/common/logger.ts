@@ -9,7 +9,7 @@ type LogLevel = 'CORE' | 'INFO' | 'WARN' | 'ERROR' | 'SUCC' | 'DEBUG' | 'VERBOSE
 export interface LogEntry {
   timestamp: string;
   level: LogLevel;
-  action?: unknown;
+  event?: unknown;
   [key: string]: unknown;
 }
 
@@ -23,19 +23,19 @@ export type FluxionLoggerFn = (entry: LogEntry) => void;
 
 /**
  * A log payload is either a plain object, whose fields are merged into the
- * entry, or a primitive, which becomes the `action` field.
+ * entry, or a primitive, which becomes the `event` field.
  */
 export type LogPayload = string | number | boolean | bigint | null | undefined | MessageObject;
 
 export interface MessageObject {
   [key: string]: unknown;
-  action?: unknown;
+  event?: unknown;
 }
 
 export interface FluxionLogger {
   /**
-   * Primitive payloads become `action`; object payloads are spread over the
-   * default `timestamp`, `level` and `action` fields.
+   * Primitive payloads become `event`; object payloads are spread over the
+   * default `timestamp`, `level` and `event` fields.
    */
   write(level: LogLevel, payload: LogPayload): void;
   info(payload: LogPayload): void;
@@ -106,7 +106,7 @@ const fallbackLine = (entry: LogEntry): string =>
   JSON.stringify({
     timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : String(entry.timestamp),
     level: typeof entry.level === 'string' ? entry.level : 'INFO',
-    action: '[unserializable]',
+    event: '[unserializable]',
   });
 
 /**
@@ -177,11 +177,11 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
   const logger: InternalFluxionLogger = {
     write(level: LogLevel, payload: LogPayload): void {
       // Default fields come first in insertion order; the spread lets a user
-      // field override `timestamp`, `level` or `action`.
+      // field override `timestamp`, `level` or `event`.
       const timestamp = new Date().toISOString();
       const entry: LogEntry = isMessageObject(payload)
-        ? { timestamp, level, action: payload.action, ...payload }
-        : { timestamp, level, action: payload };
+        ? { timestamp, level, event: payload.event, ...payload }
+        : { timestamp, level, event: payload };
 
       try {
         sink(entry);
@@ -221,7 +221,7 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
 export function createWorkerLogger(baseLogger: FluxionLogger, pid: number): InternalFluxionLogger {
   return {
     write(level: LogLevel, payload: LogPayload): void {
-      baseLogger.write(level, isMessageObject(payload) ? { ...payload, pid } : { action: payload, pid });
+      baseLogger.write(level, isMessageObject(payload) ? { ...payload, pid } : { event: payload, pid });
     },
     info(payload: LogPayload): void {
       this.write('INFO', payload);

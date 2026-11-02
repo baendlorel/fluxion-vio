@@ -6,7 +6,6 @@
 .image.json
 local-test
 cronjobs
-hotapis
 
 cli/target
 

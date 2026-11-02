@@ -29,7 +29,7 @@ function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: N
   const disposer = m.disposer;
   res.once('close', () => {
     PromiseTry(disposer).catch((e: unknown) => {
-      cx.logger.error({ action: 'DisposerFailed', url: m.absolutePath, error: formatError(e) });
+      cx.logger.error({ event: 'DisposerFailed', url: m.absolutePath, error: formatError(e) });
     });
   });
 }
@@ -72,12 +72,12 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       truncated: false,
     };
 
-    cx.logger.core({ action: 'request', method, ip, path: url.pathname });
+    cx.logger.core({ event: 'request', method, ip, path: url.pathname });
 
     const start = performance.now();
     res.once('finish', () => {
       const o: Record<string, unknown> = {
-        action: 'response',
+        event: 'response',
         method,
         ip,
         path: url.pathname,
@@ -134,7 +134,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
 
           if (result === flags.MiddlewareTimeout) {
             cx.logger.warn({
-              action: 'MiddlewareTimeout',
+              event: 'MiddlewareTimeout',
               method: normalized.method,
               ip: normalized.ip,
             });
@@ -158,7 +158,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       );
 
       if (result === flags.HandlerTimeout) {
-        cx.logger.warn({ action: 'HandlerTimeout', method: normalized.method, ip: normalized.ip });
+        cx.logger.warn({ event: 'HandlerTimeout', method: normalized.method, ip: normalized.ip });
         safeSendJson(res, { message: 'Handler timed out' }, HttpCode.InternalServerError);
         return;
       }
@@ -170,14 +170,14 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       if (e instanceof HttpException) {
         cx.logger.error({
           ...normalized,
-          action: 'RequestFailed',
+          event: 'RequestFailed',
           error: e.message,
         });
         safeSendJson(res, { message: e.message }, e.errno);
       } else {
         cx.logger.error({
           ...normalized,
-          action: 'RequestFailed',
+          event: 'RequestFailed',
           error: formatError(e),
         });
         safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
@@ -201,7 +201,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
 
     server.on('close', () => {
       cx.logger.core({
-        action: 'ServerClosed',
+        event: 'ServerClosed',
         host: cx.options.host,
         port: cx.options.port,
       });
@@ -210,7 +210,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
     server.once('listening', () => {
       listening = true;
       cx.logger.core({
-        action: 'FluxionStarted',
+        event: 'FluxionStarted',
         version: '__VERSION__',
         pid: process.pid,
         protocol: cx.options.https ? 'https' : 'http',
@@ -218,7 +218,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
         port: cx.options.port,
       });
       cx.logger.core({
-        action: 'DynamicDirectory',
+        event: 'DynamicDirectory',
         directory: cx.options.dir,
       });
       resolve(server);
@@ -226,7 +226,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
 
     server.on('error', (e) => {
       cx.logger.error({
-        action: 'ServerError',
+        event: 'ServerError',
         error: formatError(e),
       });
       if (listening) {

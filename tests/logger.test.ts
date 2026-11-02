@@ -18,30 +18,30 @@ const collect = () => {
 };
 
 describe('logger entry shape', () => {
-  test('a primitive payload becomes the action field', () => {
+  test('a primitive payload becomes the event field', () => {
     const { entries, log } = collect();
     const logger = log();
     logger.info('hello');
     logger.warn(42);
     logger.error(true);
 
-    expect(entries[0]).toMatchObject({ level: 'INFO', action: 'hello' });
-    expect(entries[1]).toMatchObject({ level: 'WARN', action: 42 });
-    expect(entries[2]).toMatchObject({ level: 'ERROR', action: true });
+    expect(entries[0]).toMatchObject({ level: 'INFO', event: 'hello' });
+    expect(entries[1]).toMatchObject({ level: 'WARN', event: 42 });
+    expect(entries[2]).toMatchObject({ level: 'ERROR', event: true });
   });
 
   test('an object payload is spread over the default fields', () => {
     const { entries, log } = collect();
-    log().error({ action: 'RequestFailed', method: 'GET' });
+    log().error({ event: 'RequestFailed', method: 'GET' });
 
-    expect(entries[0]).toMatchObject({ level: 'ERROR', action: 'RequestFailed', method: 'GET' });
+    expect(entries[0]).toMatchObject({ level: 'ERROR', event: 'RequestFailed', method: 'GET' });
   });
 
-  test('user fields override the default timestamp, level and action', () => {
+  test('user fields override the default timestamp, level and event', () => {
     const { entries, log } = collect();
-    log().info({ level: 'CUSTOM', action: 'mine' });
+    log().info({ level: 'CUSTOM', event: 'mine' });
 
-    expect(entries[0]).toMatchObject({ level: 'CUSTOM', action: 'mine' });
+    expect(entries[0]).toMatchObject({ level: 'CUSTOM', event: 'mine' });
   });
 
   test('timestamp is generated for each call', () => {
@@ -78,9 +78,9 @@ describe('json-line output', () => {
     const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const error = new Error('failed');
-      createLogger({ options } as Pick<FluxionContext, 'options'>).error({ action: 'RequestFailed', error });
+      createLogger({ options } as Pick<FluxionContext, 'options'>).error({ event: 'RequestFailed', error });
       const parsed = JSON.parse(spy.mock.calls[0][0] as string);
-      expect(parsed.action).toBe('RequestFailed');
+      expect(parsed.event).toBe('RequestFailed');
       expect(parsed.error).toBe(`failed\n${error.stack}`);
     } finally {
       spy.mockRestore();
@@ -95,9 +95,9 @@ describe('logger options', () => {
 
     const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      createLogger({ options } as Pick<FluxionContext, 'options'>).info({ action: 'x', a: 1 });
+      createLogger({ options } as Pick<FluxionContext, 'options'>).info({ event: 'x', a: 1 });
       const line = spy.mock.calls[0][0] as string;
-      expect(JSON.parse(line)).toMatchObject({ level: 'INFO', action: 'x', a: 1 });
+      expect(JSON.parse(line)).toMatchObject({ level: 'INFO', event: 'x', a: 1 });
       expect(line).not.toContain('\n');
     } finally {
       spy.mockRestore();
@@ -113,6 +113,6 @@ describe('logger options', () => {
     makeLogger((entry: LogEntry) => entries.push(entry)).logger.succ('done');
 
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ level: 'SUCC', action: 'done' });
+    expect(entries[0]).toMatchObject({ level: 'SUCC', event: 'done' });
   });
 });

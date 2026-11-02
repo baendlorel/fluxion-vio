@@ -65,7 +65,7 @@ function makeStaticResource(absolutePath: string): NormalizedModule {
         res.statusCode = 404;
         res.end('Not Accessible');
         cx.logger.error({
-          action: 'StaticResourceError',
+          event: 'StaticResourceError',
           url: normalized.url.pathname,
           error: stat.message,
         });

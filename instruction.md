@@ -91,15 +91,15 @@ Relative paths are resolved relative to `process.cwd()`. PEM content can be pass
 
 ### Logging
 
-The default logger writes **JSON Lines**: one JSON object per line on stdout, with `timestamp`, `level` and `action`.
+The default logger writes **JSON Lines**: one JSON object per line on stdout, with `timestamp`, `level` and `event`.
 
 ```ts
-cx.logger.info('request');                            // {"timestamp":"…","level":"INFO","action":"request"}
-cx.logger.warn({ action: 'RateLimited', ip: req.ip }); // {"timestamp":"…","level":"WARN","action":"RateLimited","ip":"…"}
+cx.logger.info('request');                            // {"timestamp":"…","level":"INFO","event":"request"}
+cx.logger.warn({ event: 'RateLimited', ip: req.ip }); // {"timestamp":"…","level":"WARN","event":"RateLimited","ip":"…"}
 ```
 
-- A primitive payload (`string`, number, boolean, `null`) becomes `action`.
-- An object payload is merged after the default fields, so your fields can override `timestamp`, `level` or `action`.
+- A primitive payload (`string`, number, boolean, `null`) becomes `event`.
+- An object payload is merged after the default fields, so your fields can override `timestamp`, `level` or `event`.
 - An `Error` value anywhere in the payload is serialized as `message` + newline + `stack`; use the exported `formatError(e)` to build that string yourself.
 - There is **no** built-in one-line mode. Write your own logger function if you need one.
 
@@ -108,9 +108,9 @@ cx.logger.warn({ action: 'RateLimited', ip: req.ip }); // {"timestamp":"…","le
 ```ts
 import { fluxion, defineFluxionLogger } from 'fluxion-vio';
 
-const oneLine = defineFluxionLogger(({ timestamp, level, action, ...fields }) => {
+const oneLine = defineFluxionLogger(({ timestamp, level, event, ...fields }) => {
   const rest = Object.keys(fields).length ? ' ' + JSON.stringify(fields) : '';
-  console.log(`[${timestamp}] ${level} ${String(action ?? '')}${rest}`);
+  console.log(`[${timestamp}] ${level} ${String(event ?? '')}${rest}`);
 });
 
 await fluxion({
@@ -203,7 +203,7 @@ Middleware runs sequentially **before** the handler. It can modify the request v
 import { defineFluxionMiddleware } from 'fluxion-vio';
 
 const logMiddleware = defineFluxionMiddleware(async (req, cx) => {
-  cx.logger.info({ action: 'request', path: req.url.pathname });
+  cx.logger.info({ event: 'request', path: req.url.pathname });
 });
 ```
 
