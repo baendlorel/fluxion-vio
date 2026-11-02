@@ -67,6 +67,22 @@ write(
   'app/sub/where.ts',
   'export const info = { dirname: __dirname, filename: __filename, metaDir: import.meta.dirname };',
 );
+// A source-level declaration of `__dirname` cannot coexist with the function parameter of the same name, so such a
+// file is recompiled with both names `define`d instead. `shadow` covers a local binding kept intact, and the free
+// `__filename` reference that is still injected by `define` in that mode.
+write(
+  'app/sub/shadow.ts',
+  `import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+let __filename = 'shadowed';
+const inner = () => { const __dirname = 'inner'; return __dirname; };
+export const shadow = { dirname: __dirname, filename: __filename, inner: inner() };`,
+);
+// Every other file keeps the parameter form, where `__dirname` is a real binding: `eval` sees it and assigning to it
+// does not escape to the global object
+write('app/sub/eval.ts', `export const seen = eval('__dirname');`);
+write('app/sub/assign.ts', `__dirname = 'assigned'; export const assigned = 'ok';`);
 write('app/lazy.ts', `${count('lazy')} export const lazyN: number = globalThis.__cnt.lazy;`);
 write(
   'app/entry.ts',
@@ -138,6 +154,19 @@ describe('fluxionRequire scope', () => {
       filename: path.join(dir, 'sub/where.ts'),
       metaDir: path.join(dir, 'sub'),
     });
+  });
+
+  test('a source that declares its own __dirname or __filename keeps its binding instead of failing', () => {
+    const { shadow } = fluxionRequire(path.join(dir, 'sub/shadow.ts'), { dir });
+
+    expect(shadow).toEqual({ dirname: path.join(dir, 'sub'), filename: 'shadowed', inner: 'inner' });
+  });
+
+  test('__dirname stays a real binding, so eval sees it and assigning to it does not reach the global object', () => {
+    expect(fluxionRequire(path.join(dir, 'sub/eval.ts'), { dir }).seen).toBe(path.join(dir, 'sub'));
+
+    expect(fluxionRequire(path.join(dir, 'sub/assign.ts'), { dir }).assigned).toBe('ok');
+    expect((globalThis as any).__dirname).toBeUndefined();
   });
 
   test('dynamic import() of a local file goes through the loader, literal or not', async () => {

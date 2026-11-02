@@ -100,7 +100,22 @@ export class FluxionLoader {
     this.opts = options;
   }
 
-  private compile(file: string) {
+  /**
+   * `shadowed` switches `__dirname` / `__filename` from function parameters to `define` constants, for sources that
+   * declare one at the top level and would otherwise collide with the parameter. Only then, because a `define`d name
+   * is not a binding: `eval('__dirname')` would stop seeing it and assigning to it would leak to the global object.
+   */
+  private compile(file: string, shadowed: boolean) {
+    const define: Record<string, string> = {
+      'import.meta.url': JSON.stringify(pathToFileURL(file).href),
+      'import.meta.filename': JSON.stringify(file),
+      'import.meta.dirname': JSON.stringify(dirname(file)),
+    };
+    if (shadowed) {
+      define.__dirname = JSON.stringify(dirname(file));
+      define.__filename = JSON.stringify(file);
+    }
+
     const { outputFiles } = buildSync({
       entryPoints: [file],
       bundle: false,
@@ -113,11 +128,7 @@ export class FluxionLoader {
       logLevel: 'silent',
       // `import(x)` becomes `require(x)`, because a vm function has no way to run a native dynamic import
       supported: { 'dynamic-import': false },
-      define: {
-        'import.meta.url': JSON.stringify(pathToFileURL(file).href),
-        'import.meta.filename': JSON.stringify(file),
-        'import.meta.dirname': JSON.stringify(dirname(file)),
-      },
+      define,
     });
     return outputFiles[0].text;
   }
@@ -198,10 +209,26 @@ export class FluxionLoader {
       throw new Error(`FluxionLoader: unsupported file type "${ext}" (${file})`);
     }
 
-    const fn = compileFunction(this.compile(file), ['exports', 'require', 'module', '__filename', '__dirname'], {
-      filename: file,
-    });
+    const fn = this.compileFunction(file);
     fn.call(mod.exports, mod.exports, this.createModuleRequire(mod), mod, file, dirname(file));
+  }
+
+  /**
+   * Parameters first, so `eval('__dirname')` still sees it and assigning to it stays local. A source declaring its
+   * own `__dirname` cannot be compiled with that parameter, so on that exact error the file is recompiled with
+   * `define` instead. Compiling runs nothing, so a failed attempt has no side effects.
+   */
+  private compileFunction(file: string) {
+    const params = ['exports', 'require', 'module', '__filename', '__dirname'];
+    try {
+      return compileFunction(this.compile(file, false), params, { filename: file });
+    } catch (e) {
+      const redeclared = e instanceof SyntaxError && /__dirname|__filename/.test(e.message);
+      if (!redeclared) {
+        throw e;
+      }
+      return compileFunction(this.compile(file, true), params.slice(0, 3), { filename: file });
+    }
   }
 
   /**
