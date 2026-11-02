@@ -1,6 +1,7 @@
 import type { FluxionContext, FluxionOptions, NormalizedFluxionOptions } from './types.js';
 
 import { createLogger } from './common/logger.js';
+import { redirectOutput } from './common/output.js';
 import { flags } from './common/consts.js';
 import { supportsInPlaceRestart, watchMemory } from './common/restart.js';
 import { defineFluxionOptions } from './defines/options.js';
@@ -15,6 +16,11 @@ import { createRouter } from './router/index.js';
 export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions) {
   const alreadyNormalized = (options as NormalizedFluxionOptions).normalizedFlag === flags.OptionsNormalized;
   const context = { options: alreadyNormalized ? options : defineFluxionOptions(options) } as FluxionContext;
+
+  // Before anything is logged, so a startup failure (a busy port) lands in the file too.
+  if (context.options.logOutputFile) {
+    await redirectOutput(context.options.logOutputFile);
+  }
 
   // A restart must drain the log before execve replaces the image, so the file
   // sink is flushed explicitly instead of closing itself. On runtimes without

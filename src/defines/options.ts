@@ -109,6 +109,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     https,
     csp = "default-src 'self'",
     restartMemoryMB = false,
+    logOutputFile: rawLogOutputFile,
   } = o as FluxionOptions;
 
   const port = userPort;
@@ -165,6 +166,12 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     }
   }
 
+  if (rawLogOutputFile !== undefined && (typeof rawLogOutputFile !== 'string' || rawLogOutputFile.length === 0)) {
+    throw new FluxionError('FluxionOptions.logOutputFile must be a non-empty string path');
+  }
+  // Relative paths follow `dir` and `https`: resolved against the cwd.
+  const logOutputFile = rawLogOutputFile === undefined ? undefined : path.resolve(process.cwd(), rawLogOutputFile);
+
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -179,6 +186,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     target,
     maxRequestBytes,
     logger,
+    logOutputFile,
     apiInclude,
     staticInclude,
     exclude,

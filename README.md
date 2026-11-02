@@ -139,6 +139,19 @@ await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000, logger: oneLine
 
 Setting `FLUXION_INSTANCE_LOG=/path/to/file.log` additionally writes the same JSON lines to that file.
 
+### Redirecting all output to a file
+
+Set `logOutputFile` to send everything the process prints — the framework's JSON lines and your own `console.log` / `console.error` — to a file instead of the terminal:
+
+```ts
+await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000, logOutputFile: './logs/server.log' });
+```
+
+- Relative paths are resolved against `process.cwd()`; missing parent directories are created. The file is appended to, never truncated.
+- The redirect starts when `fluxion()` is called, before it opens the port, so a startup failure (a busy port, for instance) lands in the file too. Output printed *before* that call has already gone to the terminal — call `fluxion()` as early as possible.
+- On an in-place restart the same file is reopened in append mode, so the log continues across restarts.
+- `SIGINT` / `SIGTERM` flush the file before exiting.
+
 ## HTTP exceptions
 
 ```ts
@@ -198,6 +211,7 @@ interface FluxionOptions {
 
   maxRequestBytes?: number; // 8_000_000
   logger?: 'json-line' | ((entry) => void); // 'json-line'
+  logOutputFile?: string; // redirect stdout/stderr here (relative to cwd)
   target?: string | string[]; // esbuild target, default 'node<major>'
   https?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer | Array<string | Buffer> };
   csp?: string | false; // "default-src 'self'"; false omits the header

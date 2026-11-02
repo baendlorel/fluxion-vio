@@ -96,6 +96,20 @@ export interface FluxionOptions {
   logger?: LoggerOption;
 
   /**
+   * Redirect the process's stdout and stderr to this file. It is opened in
+   * append mode, and its parent directories are created when missing.
+   *
+   * Relative paths are resolved against `process.cwd()`. Everything the
+   * process prints after `fluxion()` opens the file ends up here — including
+   * `console.log` calls from your handlers. Output written before that call
+   * has already gone to the terminal.
+   *
+   * On an in-place restart the same file is reopened in append mode.
+   * @example './logs/server.log'
+   */
+  logOutputFile?: string;
+
+  /**
    * Glob patterns for files that should be treated as API handlers.
    * Files matching these patterns will be loaded as handlers and served as APIs.
    * Defaults to TypeScript files (*.ts).
@@ -171,6 +185,7 @@ export interface NormalizedFluxionOptions {
   target: string | string[];
   maxRequestBytes: number;
   logger: LoggerOption;
+  logOutputFile?: string;
   apiInclude: string[];
   staticInclude: string[];
   exclude: string[];

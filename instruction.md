@@ -104,6 +104,16 @@ cx.logger.warn({ event: 'RateLimited', ip: req.ip }); // {"timestamp":"…","lev
 - An `Error` value anywhere in the payload is serialized as `message` + newline + `stack`; use the exported `formatError(e)` to build that string yourself.
 - There is **no** built-in one-line mode. Write your own logger function if you need one.
 
+### Redirecting output to a file
+
+`logOutputFile` sends everything the process prints — the JSON lines above *and* plain `console.log` / `console.error` from your handlers — to a file instead of the terminal. The file is opened in append mode and missing parent directories are created; relative paths are resolved against `process.cwd()`.
+
+```ts
+await fluxion({ dir: './dynamic', host: 'localhost', port: 3000, logOutputFile: './logs/server.log' });
+```
+
+The redirect is installed when `fluxion()` is called (call it early — output before that has already gone to the terminal), survives an in-place restart by reopening the same file, and is flushed on `SIGINT` / `SIGTERM`.
+
 ### Custom Logger
 
 ```ts
@@ -386,6 +396,7 @@ interface FluxionOptions {
 
   // Logging
   logger?: 'json-line' | FluxionLoggerFn;  // Default: 'json-line'
+  logOutputFile?: string;          // Redirect stdout+stderr here, appended. Relative to process.cwd().
 
   // Module system
   target?: string | string[];      // esbuild target. Default: `node<major>`

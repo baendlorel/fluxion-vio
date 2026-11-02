@@ -276,3 +276,31 @@ describe('memory-triggered restart option', () => {
     }
   });
 });
+
+describe('logOutputFile option', () => {
+  const make = (logOutputFile?: unknown) =>
+    defineFluxionOptions({
+      dir: makeTempDir(),
+      host: '127.0.0.1',
+      port: nextPort(),
+      // @ts-expect-error
+      logOutputFile,
+    });
+
+  test('is unset by default', () => {
+    expect(make().logOutputFile).toBeUndefined();
+  });
+
+  test('resolves a relative path against the current working directory', () => {
+    expect(make('logs/server.log').logOutputFile).toBe(path.resolve(process.cwd(), 'logs/server.log'));
+  });
+
+  test('keeps an absolute path as-is', () => {
+    const absolute = path.join(makeTempDir(), 'server.log');
+    expect(make(absolute).logOutputFile).toBe(absolute);
+  });
+
+  test.each(['', 42, null])('rejects %p', (value) => {
+    expect(() => make(value)).toThrow(/logOutputFile must be a non-empty string path/);
+  });
+});
