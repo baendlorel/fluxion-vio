@@ -111,6 +111,34 @@ Parsed before the handler runs, except for `GET`/`HEAD`:
 
 Run sequentially before the handler, each with `middlewareTimeoutMs` (default 3 s). Side effects on `req` are visible to the next middleware and the handler. Write to `rawRes` and return to short-circuit.
 
+## Logging
+
+Logs are JSON Lines by default: one JSON object per line on stdout, with `timestamp`, `level` and `action` fields.
+
+```ts
+cx.logger.info('request'); // {"timestamp":"…","level":"INFO","action":"request"}
+cx.logger.warn({ action: 'RateLimited', ip: req.ip }); // {"timestamp":"…","level":"WARN","action":"RateLimited","ip":"…"}
+```
+
+- A primitive payload (`string`, number, boolean, `null`) becomes `action`.
+- An object payload is merged after the defaults, so your own fields can override `timestamp`, `level` or `action`.
+- An `Error` value anywhere in the payload is serialized as `message` + newline + `stack` (plain `JSON.stringify` would give `{}`). Use the exported `formatError(e)` to get the same string yourself.
+
+There is no built-in one-line mode. To get a human-readable format, pass your own logger function:
+
+```ts
+import { fluxion, defineFluxionLogger } from 'fluxion-vio';
+
+const oneLine = defineFluxionLogger(({ timestamp, level, action, ...fields }) => {
+  const rest = Object.keys(fields).length ? ' ' + JSON.stringify(fields) : '';
+  console.log(`[${timestamp}] ${level} ${String(action ?? '')}${rest}`);
+});
+
+await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000, logger: oneLine });
+```
+
+Setting `FLUXION_INSTANCE_LOG=/path/to/file.log` additionally writes the same JSON lines to that file.
+
 ## HTTP exceptions
 
 ```ts
@@ -154,7 +182,7 @@ interface FluxionOptions {
   exclude?: string[]; // node_modules, .git, dist, ...
 
   maxRequestBytes?: number; // 8_000_000
-  logger?: 'one-line' | 'json-line' | ((entry) => void); // 'one-line'
+  logger?: 'json-line' | ((entry) => void); // 'json-line'
   target?: string | string[]; // esbuild target, default 'node<major>'
   https?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer | Array<string | Buffer> };
   csp?: string | false; // "default-src 'self'"; false omits the header

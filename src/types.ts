@@ -85,7 +85,9 @@ export interface FluxionOptions {
 
   /**
    * Logger output mode or custom logger sink.
-   * Defaults to `one-line`.
+   * Defaults to `json-line`: one JSON object per line, with `timestamp`,
+   * `level` and `action` fields. There is no built-in one-line mode — write
+   * your own logger function if you want a human-readable format.
    *
    * Also accepts a logger function that will replace the default one.
    *

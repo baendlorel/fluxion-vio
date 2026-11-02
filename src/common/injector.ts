@@ -13,23 +13,23 @@ function isFluxionModule(cx: Pick<FluxionContext, 'options' | 'logger'>, o: unkn
   static_cast<NormalizedModule>(o);
 
   if (typeof o.handler !== 'function') {
-    cx.logger.error(`handler must be a function`);
+    cx.logger.error({ action: 'InvalidModule', error: 'handler must be a function' });
     return false;
   }
 
   if (o.disposer !== undefined && typeof o.disposer !== 'function') {
-    cx.logger.error(`disposer must be a function if provided`);
+    cx.logger.error({ action: 'InvalidModule', error: 'disposer must be a function if provided' });
     return false;
   }
 
   const ms = o.handlerTimeoutMs;
   if (ms !== undefined && (!Number.isSafeInteger(ms) || ms < 100)) {
-    cx.logger.error(`handlerTimeoutMs must be an integer >= 100 if provided`);
+    cx.logger.error({ action: 'InvalidModule', error: 'handlerTimeoutMs must be an integer >= 100 if provided' });
     return false;
   }
 
   if (o.type !== ModuleType.Api) {
-    cx.logger.error(`You must use defineFluxionModule to create module`);
+    cx.logger.error({ action: 'InvalidModule', error: 'You must use defineFluxionModule to create module' });
     return false;
   }
 

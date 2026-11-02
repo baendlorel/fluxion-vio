@@ -89,20 +89,35 @@ await fluxion({
 
 Relative paths are resolved relative to `process.cwd()`. PEM content can be passed as strings directly.
 
+### Logging
+
+The default logger writes **JSON Lines**: one JSON object per line on stdout, with `timestamp`, `level` and `action`.
+
+```ts
+cx.logger.info('request');                            // {"timestamp":"…","level":"INFO","action":"request"}
+cx.logger.warn({ action: 'RateLimited', ip: req.ip }); // {"timestamp":"…","level":"WARN","action":"RateLimited","ip":"…"}
+```
+
+- A primitive payload (`string`, number, boolean, `null`) becomes `action`.
+- An object payload is merged after the default fields, so your fields can override `timestamp`, `level` or `action`.
+- An `Error` value anywhere in the payload is serialized as `message` + newline + `stack`; use the exported `formatError(e)` to build that string yourself.
+- There is **no** built-in one-line mode. Write your own logger function if you need one.
+
 ### Custom Logger
 
 ```ts
 import { fluxion, defineFluxionLogger } from 'fluxion-vio';
 
-const myLogger = defineFluxionLogger((entry) => {
-  console.log(JSON.stringify(entry));
+const oneLine = defineFluxionLogger(({ timestamp, level, action, ...fields }) => {
+  const rest = Object.keys(fields).length ? ' ' + JSON.stringify(fields) : '';
+  console.log(`[${timestamp}] ${level} ${String(action ?? '')}${rest}`);
 });
 
 await fluxion({
   dir: './dynamic',
   host: 'localhost',
   port: 3000,
-  logger: myLogger,
+  logger: oneLine,
 });
 ```
 
@@ -188,7 +203,7 @@ Middleware runs sequentially **before** the handler. It can modify the request v
 import { defineFluxionMiddleware } from 'fluxion-vio';
 
 const logMiddleware = defineFluxionMiddleware(async (req, cx) => {
-  cx.logger.info({ message: 'request', path: req.url.pathname });
+  cx.logger.info({ action: 'request', path: req.url.pathname });
 });
 ```
 
@@ -369,7 +384,7 @@ interface FluxionOptions {
   maxRequestBytes?: number;        // Default: 8_000_000 (8MB). 413 if exceeded.
 
   // Logging
-  logger?: 'one-line' | 'json-line' | FluxionLoggerFn;
+  logger?: 'json-line' | FluxionLoggerFn;  // Default: 'json-line'
 
   // Module system
   target?: string | string[];      // esbuild target. Default: `node<major>`

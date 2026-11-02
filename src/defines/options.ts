@@ -112,9 +112,11 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
 
   const port = userPort;
 
-  const logger = o.logger ?? 'one-line';
-  if (logger !== 'one-line' && logger !== 'json-line' && typeof logger !== 'function') {
-    throw new FluxionError(`Invalid logger option, Must be 'one-line', 'json-line' or a custom logger function`);
+  const logger = o.logger ?? 'json-line';
+  if (logger !== 'json-line' && typeof logger !== 'function') {
+    throw new FluxionError(
+      `Invalid logger option, Must be 'json-line' or a custom logger function (write a one-line logger yourself)`,
+    );
   }
 
   if (typeof rawDir !== 'string') {

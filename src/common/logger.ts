@@ -1,38 +1,49 @@
 import type { FluxionContext } from '@/types.js';
 import type { otherstring } from '@/types.js';
-import stringify from 'fast-json-stable-stringify';
 import { createWriteStream, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
 type LogLevel = 'CORE' | 'INFO' | 'WARN' | 'ERROR' | 'SUCC' | 'DEBUG' | 'VERBOSE' | otherstring;
 
-interface LogEntry {
+export interface LogEntry {
   timestamp: string;
   level: LogLevel;
+  action?: unknown;
   [key: string]: unknown;
 }
 
-export type LoggerOption = 'one-line' | 'json-line' | FluxionLoggerFn;
+/**
+ * `'json-line'` writes one JSON object per line. `one-line` is intentionally
+ * not built in: write your own function with {@link defineFluxionLogger}.
+ */
+export type LoggerOption = 'json-line' | FluxionLoggerFn;
 
 export type FluxionLoggerFn = (entry: LogEntry) => void;
 
+/**
+ * A log payload is either a plain object, whose fields are merged into the
+ * entry, or a primitive, which becomes the `action` field.
+ */
+export type LogPayload = string | number | boolean | bigint | null | undefined | MessageObject;
+
 export interface MessageObject {
   [key: string]: unknown;
-  message?: string;
+  action?: unknown;
 }
 
 export interface FluxionLogger {
   /**
-   * [WARN] We assert that `fields` is an object or undefined.
+   * Primitive payloads become `action`; object payloads are spread over the
+   * default `timestamp`, `level` and `action` fields.
    */
-  write(level: LogLevel, messageOrObject: string | MessageObject): void;
-  info(messageOrObject: string | MessageObject): void;
-  warn(messageOrObject: string | MessageObject): void;
-  error(messageOrObject: string | MessageObject): void;
-  succ(messageOrObject: string | MessageObject): void;
-  debug(messageOrObject: string | MessageObject): void;
-  verbose(messageOrObject: string | MessageObject): void;
+  write(level: LogLevel, payload: LogPayload): void;
+  info(payload: LogPayload): void;
+  warn(payload: LogPayload): void;
+  error(payload: LogPayload): void;
+  succ(payload: LogPayload): void;
+  debug(payload: LogPayload): void;
+  verbose(payload: LogPayload): void;
 }
 
 /**
@@ -47,46 +58,80 @@ export interface FluxionLogger {
  * `core` off-limits to user handlers.
  */
 export interface InternalFluxionLogger extends FluxionLogger {
-  core(messageOrObject: string | MessageObject): void;
+  core(payload: LogPayload): void;
 }
 
-const safeStringify = (value: unknown): string => {
+const isMessageObject = (payload: LogPayload): payload is MessageObject =>
+  typeof payload === 'object' && payload !== null && !Array.isArray(payload);
+
+/**
+ * ! Error.isError needs Node.js 24
+ */
+const isError = (value: unknown): value is Error =>
+  typeof Error.isError === 'function' ? Error.isError(value) : value instanceof Error;
+
+/**
+ * Turn anything thrown or passed as an error into a printable string:
+ * the `message`, followed by the `stack` on the next line when present.
+ */
+export function formatError(e: unknown): string {
+  if (typeof e === 'object' && e !== null) {
+    const { message, stack } = e as { message?: unknown; stack?: unknown };
+    let text = '';
+    if (typeof message === 'string' && message.length > 0) {
+      text = message;
+    }
+    if (typeof stack === 'string' && stack.length > 0) {
+      text += (text.length > 0 ? '\n' : '') + stack;
+    }
+    if (text.length > 0) {
+      return text;
+    }
+  }
+  return String(e);
+}
+
+const jsonReplacer = (_key: string, value: unknown): unknown => {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  // Errors serialize to `{}` on their own, so expand them to message + stack.
+  if (isError(value)) {
+    return formatError(value);
+  }
+  return value;
+};
+
+const fallbackLine = (entry: LogEntry): string =>
+  JSON.stringify({
+    timestamp: typeof entry.timestamp === 'string' ? entry.timestamp : String(entry.timestamp),
+    level: typeof entry.level === 'string' ? entry.level : 'INFO',
+    action: '[unserializable]',
+  });
+
+/**
+ * Serialize one entry as a single JSON line.
+ */
+const safeStringify = (entry: LogEntry): string => {
   try {
-    return stringify(value);
+    return JSON.stringify(entry, jsonReplacer) ?? fallbackLine(entry);
   } catch {
-    return '[unserializable]';
+    return fallbackLine(entry);
   }
 };
 
-const ColoredLevels: Record<LogLevel, string> = {
-  CORE: `CORE`,
-  INFO: `INFO`,
-  WARN: `WARN`,
-  ERROR: `ERROR`,
-  SUCC: `SUCC`,
-  DEBUG: `DEBUG`,
-  VERBOSE: `VERBOSE`,
-};
-
-export const oneLineLogger: FluxionLoggerFn = (entry: LogEntry) => {
-  const { level: rawLevel, timestamp: rawTimestamp, message: rawMessage, pid, ...fields } = entry;
-
-  const timestamp = `[${rawTimestamp}]`;
-  const level = ColoredLevels[rawLevel] ?? rawLevel;
-  const pidText = pid === undefined ? '' : ` [${pid}]`;
-  const fieldsText = Object.keys(fields).length > 0 ? ` ${safeStringify(fields)}` : '';
-
-  // 智能处理消息内容：如果有 message 字段就显示，否则只显示 fields
-  const content = rawMessage ? rawMessage + fieldsText : fieldsText.trim();
-
-  // eslint-disable-next-line @typescript-eslint/no-console
-  console.log(`${timestamp} ${level}${pidText} ${content}`);
+/**
+ * Default sink: one JSON object per line on stdout.
+ */
+export const jsonLineLogger: FluxionLoggerFn = (entry: LogEntry) => {
+  // eslint-disable-next-line no-console
+  console.log(safeStringify(entry));
 };
 
 /**
  * 创建文件日志写入器
  */
-function createFileSink(logFilePath: string): (entry: LogEntry) => void {
+function createFileSink(logFilePath: string): FluxionLoggerFn {
   // 确保日志目录存在
   if (!existsSync(logFilePath)) {
     const dir = dirname(logFilePath);
@@ -99,12 +144,7 @@ function createFileSink(logFilePath: string): (entry: LogEntry) => void {
 
   return (entry: LogEntry) => {
     try {
-      const timestamp = entry.timestamp || new Date().toISOString();
-      const level = entry.level || 'INFO';
-      const pid = entry.pid !== undefined ? ` [${entry.pid}]` : '';
-      const message = entry.message ? entry.message : safeStringify(entry);
-
-      fileStream.write(`[${timestamp}] ${level}${pid} ${message}\n`);
+      fileStream.write(safeStringify(entry) + '\n');
     } catch {
       // 忽略文件写入错误
     }
@@ -119,56 +159,29 @@ function resolveLoggerSink(cx: Pick<FluxionContext, 'options'>): FluxionLoggerFn
   const fileSink = instanceLogPath ? createFileSink(instanceLogPath) : null;
 
   const loggerOption = cx.options.logger;
-  if (loggerOption === undefined || loggerOption === 'one-line') {
-    if (fileSink) {
-      return (entry: LogEntry) => {
-        oneLineLogger(entry);
-        fileSink(entry);
-      };
-    }
-    return oneLineLogger;
+  const consoleSink = typeof loggerOption === 'function' ? loggerOption : jsonLineLogger;
+
+  if (!fileSink) {
+    return consoleSink;
   }
 
-  if (loggerOption === 'json-line') {
-    // eslint-disable-next-line @typescript-eslint/no-console
-    const jsonSink = (entry: LogEntry) => console.log(safeStringify(entry));
-    if (fileSink) {
-      return (entry: LogEntry) => {
-        jsonSink(entry);
-        fileSink(entry);
-      };
-    }
-    return jsonSink;
-  }
-
-  if (fileSink) {
-    // 自定义 logger + 文件输出
-    return (entry: LogEntry) => {
-      loggerOption(entry);
-      fileSink(entry);
-    };
-  }
-
-  return loggerOption;
+  return (entry: LogEntry) => {
+    consoleSink(entry);
+    fileSink(entry);
+  };
 }
 
 export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxionLogger {
   const sink = resolveLoggerSink(cx);
 
   const logger: InternalFluxionLogger = {
-    write(level: LogLevel, o: string | object): void {
-      const entry: LogEntry =
-        typeof o === 'string'
-          ? {
-              message: o,
-              timestamp: new Date().toISOString(),
-              level,
-            }
-          : {
-              ...o,
-              timestamp: new Date().toISOString(),
-              level,
-            };
+    write(level: LogLevel, payload: LogPayload): void {
+      // Default fields come first in insertion order; the spread lets a user
+      // field override `timestamp`, `level` or `action`.
+      const timestamp = new Date().toISOString();
+      const entry: LogEntry = isMessageObject(payload)
+        ? { timestamp, level, action: payload.action, ...payload }
+        : { timestamp, level, action: payload };
 
       try {
         sink(entry);
@@ -176,26 +189,26 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
         // Ignore logger sink failures to avoid breaking request handling.
       }
     },
-    info(messageOrObject: string | MessageObject): void {
-      this.write('INFO', messageOrObject);
+    info(payload: LogPayload): void {
+      this.write('INFO', payload);
     },
-    warn(messageOrObject: string | MessageObject): void {
-      this.write('WARN', messageOrObject);
+    warn(payload: LogPayload): void {
+      this.write('WARN', payload);
     },
-    error(messageOrObject: string | MessageObject): void {
-      this.write('ERROR', messageOrObject);
+    error(payload: LogPayload): void {
+      this.write('ERROR', payload);
     },
-    succ(messageOrObject: string | MessageObject): void {
-      this.write('SUCC', messageOrObject);
+    succ(payload: LogPayload): void {
+      this.write('SUCC', payload);
     },
-    debug(messageOrObject: string | MessageObject): void {
-      this.write('DEBUG', messageOrObject);
+    debug(payload: LogPayload): void {
+      this.write('DEBUG', payload);
     },
-    verbose(messageOrObject: string | MessageObject): void {
-      this.write('VERBOSE', messageOrObject);
+    verbose(payload: LogPayload): void {
+      this.write('VERBOSE', payload);
     },
-    core(messageOrObject: string | MessageObject): void {
-      this.write('CORE', messageOrObject);
+    core(payload: LogPayload): void {
+      this.write('CORE', payload);
     },
   };
 
@@ -207,40 +220,29 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
  */
 export function createWorkerLogger(baseLogger: FluxionLogger, pid: number): InternalFluxionLogger {
   return {
-    write(level: LogLevel, messageOrObject: string | MessageObject): void {
-      baseLogger.write(
-        level,
-        typeof messageOrObject === 'string' ? { message: messageOrObject, pid } : { ...messageOrObject, pid },
-      );
+    write(level: LogLevel, payload: LogPayload): void {
+      baseLogger.write(level, isMessageObject(payload) ? { ...payload, pid } : { action: payload, pid });
     },
-    info(messageOrObject: string | MessageObject): void {
-      this.write('INFO', messageOrObject);
+    info(payload: LogPayload): void {
+      this.write('INFO', payload);
     },
-    warn(messageOrObject: string | MessageObject): void {
-      this.write('WARN', messageOrObject);
+    warn(payload: LogPayload): void {
+      this.write('WARN', payload);
     },
-    error(messageOrObject: string | MessageObject): void {
-      this.write('ERROR', messageOrObject);
+    error(payload: LogPayload): void {
+      this.write('ERROR', payload);
     },
-    succ(messageOrObject: string | MessageObject): void {
-      this.write('SUCC', messageOrObject);
+    succ(payload: LogPayload): void {
+      this.write('SUCC', payload);
     },
-    debug(messageOrObject: string | MessageObject): void {
-      this.write('DEBUG', messageOrObject);
+    debug(payload: LogPayload): void {
+      this.write('DEBUG', payload);
     },
-    verbose(messageOrObject: string | MessageObject): void {
-      this.write('VERBOSE', messageOrObject);
+    verbose(payload: LogPayload): void {
+      this.write('VERBOSE', payload);
     },
-    core(messageOrObject: string | MessageObject): void {
-      this.write('CORE', messageOrObject);
+    core(payload: LogPayload): void {
+      this.write('CORE', payload);
     },
   };
 }
-
-/**
- * ! Error.isError needs Node.js 24
- */
-export const getErrorMessage =
-  typeof Error.isError === 'function'
-    ? (e: unknown): string => (Error.isError(e) ? e.message : String(e))
-    : (e: unknown): string => (e as any)?.message || String(e);

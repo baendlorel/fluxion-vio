@@ -4,7 +4,7 @@ import https from 'node:https';
 import type { FluxionContext, FluxionModuleContext, FluxionRequest, NormalizedModule } from '../types.js';
 import { HttpCode, flags, ModuleType } from '@/common/consts.js';
 import { PromiseTry } from '@/common/promise-try.js';
-import { getErrorMessage } from '@/common/logger.js';
+import { formatError } from '@/common/logger.js';
 
 import { getRealIp } from './headers.js';
 import { toURL } from './request.js';
@@ -29,7 +29,7 @@ function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: N
   const disposer = m.disposer;
   res.once('close', () => {
     PromiseTry(disposer).catch((e: unknown) => {
-      cx.logger.error({ message: 'DisposerFailed', url: m.absolutePath, error: getErrorMessage(e) });
+      cx.logger.error({ action: 'DisposerFailed', url: m.absolutePath, error: formatError(e) });
     });
   });
 }
@@ -72,12 +72,12 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       truncated: false,
     };
 
-    cx.logger.core({ message: 'request', method, ip, path: url.pathname });
+    cx.logger.core({ action: 'request', method, ip, path: url.pathname });
 
     const start = performance.now();
     res.once('finish', () => {
       const o: Record<string, unknown> = {
-        message: 'response',
+        action: 'response',
         method,
         ip,
         path: url.pathname,
@@ -134,7 +134,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
 
           if (result === flags.MiddlewareTimeout) {
             cx.logger.warn({
-              message: 'MiddlewareTimeout',
+              action: 'MiddlewareTimeout',
               method: normalized.method,
               ip: normalized.ip,
             });
@@ -158,7 +158,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       );
 
       if (result === flags.HandlerTimeout) {
-        cx.logger.warn({ message: 'HandlerTimeout', method: normalized.method, ip: normalized.ip });
+        cx.logger.warn({ action: 'HandlerTimeout', method: normalized.method, ip: normalized.ip });
         safeSendJson(res, { message: 'Handler timed out' }, HttpCode.InternalServerError);
         return;
       }
@@ -170,15 +170,15 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
       if (e instanceof HttpException) {
         cx.logger.error({
           ...normalized,
-          message: 'RequestFailed',
+          action: 'RequestFailed',
           error: e.message,
         });
         safeSendJson(res, { message: e.message }, e.errno);
       } else {
         cx.logger.error({
           ...normalized,
-          message: 'RequestFailed',
-          error: getErrorMessage(e),
+          action: 'RequestFailed',
+          error: formatError(e),
         });
         safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
       }
@@ -201,7 +201,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
 
     server.on('close', () => {
       cx.logger.core({
-        message: 'ServerClosed',
+        action: 'ServerClosed',
         host: cx.options.host,
         port: cx.options.port,
       });
@@ -210,7 +210,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
     server.once('listening', () => {
       listening = true;
       cx.logger.core({
-        message: 'FluxionStarted',
+        action: 'FluxionStarted',
         version: '__VERSION__',
         pid: process.pid,
         protocol: cx.options.https ? 'https' : 'http',
@@ -218,7 +218,7 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
         port: cx.options.port,
       });
       cx.logger.core({
-        message: 'DynamicDirectory',
+        action: 'DynamicDirectory',
         directory: cx.options.dir,
       });
       resolve(server);
@@ -226,8 +226,8 @@ export function createServer(cx: FluxionContext): Promise<http.Server | https.Se
 
     server.on('error', (e) => {
       cx.logger.error({
-        message: 'ServerError',
-        error: getErrorMessage(e),
+        action: 'ServerError',
+        error: formatError(e),
       });
       if (listening) {
         // Server encountered an error after binding — log and let the

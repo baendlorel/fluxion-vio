@@ -24,7 +24,7 @@ export default defineConfig([
     treeshake: !isDev,
     plugins: plugins(),
     deps: {
-      onlyBundle: ['type-narrow', 'fast-json-stable-stringify'],
+      onlyBundle: ['type-narrow'],
     },
   },
 ]);
