@@ -1,5 +1,6 @@
 import type { FluxionContext } from '@/types.js';
 import type { otherstring } from '@/types.js';
+import type { WriteStream } from 'node:fs';
 import { createWriteStream, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { mkdirSync } from 'node:fs';
@@ -59,6 +60,12 @@ export interface FluxionLogger {
  */
 export interface InternalFluxionLogger extends FluxionLogger {
   core(payload: LogPayload): void;
+  /**
+   * Resolve once the buffered file sink has been drained. Must be awaited
+   * before the process image is replaced (`process.execve`), or the tail of the
+   * log is lost.
+   */
+  flush(): Promise<void>;
 }
 
 const isMessageObject = (payload: LogPayload): payload is MessageObject =>
@@ -129,9 +136,43 @@ export const jsonLineLogger: FluxionLoggerFn = (entry: LogEntry) => {
 };
 
 /**
- * 创建文件日志写入器
+ * Resolve once everything queued on the stream has been handed to the OS. An
+ * empty write gets a callback behind the queued chunks without ending the
+ * stream itself. Resolves on error too, and after a short timeout, so a stuck
+ * disk cannot hold a restart hostage.
  */
-function createFileSink(logFilePath: string): FluxionLoggerFn {
+function flushStream(stream: WriteStream): Promise<void> {
+  return new Promise((resolve) => {
+    if (stream.destroyed || stream.writableEnded) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      stream.off('error', done);
+      resolve();
+    };
+    const timer = setTimeout(done, 2000);
+    timer.unref();
+    stream.once('error', done);
+    try {
+      stream.write('', done);
+    } catch {
+      done();
+    }
+  });
+}
+
+/**
+ * 创建文件日志写入器
+ *
+ * With `deferClose`, the stream does not close itself on error and is closed by
+ * `flush()` instead: the logger stays usable until an explicit flush.
+ */
+function createFileSink(
+  logFilePath: string,
+  deferClose: boolean,
+): { sink: FluxionLoggerFn; flush: () => Promise<void> } {
   // 确保日志目录存在
   if (!existsSync(logFilePath)) {
     const dir = dirname(logFilePath);
@@ -140,23 +181,38 @@ function createFileSink(logFilePath: string): FluxionLoggerFn {
     }
   }
 
-  const fileStream = createWriteStream(logFilePath, { flags: 'a' });
+  const fileStream = createWriteStream(logFilePath, { flags: 'a', autoClose: !deferClose });
 
-  return (entry: LogEntry) => {
+  const sink: FluxionLoggerFn = (entry: LogEntry) => {
     try {
       fileStream.write(safeStringify(entry) + '\n');
     } catch {
       // 忽略文件写入错误
     }
   };
+
+  const flush = async () => {
+    await flushStream(fileStream);
+    if (deferClose) {
+      await new Promise<void>((resolve) => fileStream.close(() => resolve()));
+    }
+  };
+
+  return { sink, flush };
 }
+
+type LoggerSink = FluxionLoggerFn & { flush?: () => Promise<void> };
 
 /**
  * & Logger Options here is checked by normalizeOptions function.
+ *
+ * When `deferClose` is set, the returned sink carries a `flush` that eventually
+ * closes the file stream; it is meant for the in-place restart path, which must
+ * drain the log before `process.execve` replaces the image.
  */
-function resolveLoggerSink(cx: Pick<FluxionContext, 'options'>): FluxionLoggerFn {
+function resolveLoggerSink(cx: Pick<FluxionContext, 'options'>, deferClose: boolean): LoggerSink {
   const instanceLogPath = process.env.FLUXION_INSTANCE_LOG;
-  const fileSink = instanceLogPath ? createFileSink(instanceLogPath) : null;
+  const fileSink = instanceLogPath ? createFileSink(instanceLogPath, deferClose) : null;
 
   const loggerOption = cx.options.logger;
   const consoleSink = typeof loggerOption === 'function' ? loggerOption : jsonLineLogger;
@@ -165,14 +221,19 @@ function resolveLoggerSink(cx: Pick<FluxionContext, 'options'>): FluxionLoggerFn
     return consoleSink;
   }
 
-  return (entry: LogEntry) => {
+  const combined: LoggerSink = (entry: LogEntry) => {
     consoleSink(entry);
-    fileSink(entry);
+    fileSink.sink(entry);
   };
+  combined.flush = fileSink.flush;
+  return combined;
 }
 
-export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxionLogger {
-  const sink = resolveLoggerSink(cx);
+export function createLogger(
+  cx: Pick<FluxionContext, 'options'>,
+  options: { deferClose?: boolean } = {},
+): InternalFluxionLogger {
+  const sink = resolveLoggerSink(cx, options.deferClose === true);
 
   const logger: InternalFluxionLogger = {
     write(level: LogLevel, payload: LogPayload): void {
@@ -210,6 +271,9 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
     core(payload: LogPayload): void {
       this.write('CORE', payload);
     },
+    flush(): Promise<void> {
+      return sink.flush?.() ?? Promise.resolve();
+    },
   };
 
   return logger;
@@ -243,6 +307,10 @@ export function createWorkerLogger(baseLogger: FluxionLogger, pid: number): Inte
     },
     core(payload: LogPayload): void {
       this.write('CORE', payload);
+    },
+    flush(): Promise<void> {
+      // The base logger has no buffered stream of its own.
+      return Promise.resolve();
     },
   };
 }

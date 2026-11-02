@@ -237,3 +237,42 @@ describe('content security policy', () => {
     ).toThrow(/csp must be a string or false/);
   });
 });
+
+describe('memory-triggered restart option', () => {
+  const make = (restartMemoryMB: unknown) =>
+    defineFluxionOptions({
+      dir: makeTempDir(),
+      host: '127.0.0.1',
+      port: nextPort(),
+      // @ts-expect-error
+      restartMemoryMB,
+    });
+
+  test('is disabled by default', () => {
+    const options = defineFluxionOptions({ dir: makeTempDir(), host: '127.0.0.1', port: nextPort() });
+    expect(options.restartMemoryMB).toBe(false);
+  });
+
+  test('accepts a positive number of MB and false', () => {
+    expect(make(512).restartMemoryMB).toBe(512);
+    expect(make(0.5).restartMemoryMB).toBe(0.5);
+    expect(make(false).restartMemoryMB).toBe(false);
+  });
+
+  test.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, '512', null])('rejects %p', (value) => {
+    expect(() => make(value)).toThrow(/restartMemoryMB must be a positive number of MB, or false/);
+  });
+
+  test('does not throw without process.execve; the option is kept and ignored later', () => {
+    // Make this process look like an older Node.js, where execve did not exist.
+    const original = Object.getOwnPropertyDescriptor(process, 'execve')!;
+    Object.defineProperty(process, 'execve', { value: undefined, configurable: true });
+    try {
+      expect(typeof process.execve).toBe('undefined');
+      // Validation is about the value only: unsupported runtimes must stay compatible.
+      expect(make(512).restartMemoryMB).toBe(512);
+    } finally {
+      Object.defineProperty(process, 'execve', original);
+    }
+  });
+});

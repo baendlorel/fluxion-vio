@@ -165,6 +165,21 @@ Every request resolves its file from disk, so there is no route table to refresh
 
 Module-level state survives between requests until a reload resets it — keep handlers stateless.
 
+## Memory-triggered restart
+
+Long-running processes that reload edited files keep growing: V8's compilation cache and old module instances are never handed back. Set `restartMemoryMB` to restart the process in place once its RSS crosses that many megabytes:
+
+```ts
+await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000, restartMemoryMB: 512 });
+```
+
+- RSS is first sampled 5 seconds after `fluxion()` returns — long enough for your own startup work (database connections, cache warm-up) to settle — and then every 10 seconds. The first sample above the threshold wins.
+- The server stops accepting connections and closes idle ones, then the file log is flushed. In-flight requests get up to 5 seconds to finish.
+- The entry point is re-executed with the same argv and environment via `process.execve`, **keeping the PID** — pm2, systemd or Docker see no restart. Expect a gap of a few dozen milliseconds.
+- If `execve` fails, the process logs `RestartFailed` and exits with code 1 so a supervisor can pick it up.
+
+Requires Node.js ≥ 22.15 on Linux or macOS. Elsewhere the option is ignored — the server starts normally and logs a `RestartDisabled` warning once. Leave it unset (`false`) unless you need it.
+
 ## Options
 
 ```ts
@@ -186,6 +201,7 @@ interface FluxionOptions {
   target?: string | string[]; // esbuild target, default 'node<major>'
   https?: { key: string | Buffer; cert: string | Buffer; ca?: string | Buffer | Array<string | Buffer> };
   csp?: string | false; // "default-src 'self'"; false omits the header
+  restartMemoryMB?: number | false; // restart in place above this RSS; false (default) disables
 }
 ```
 
@@ -203,7 +219,7 @@ Single process, no supervisor. Use pm2, systemd, Docker, or a similar manager:
 pm2 start "node server.js" --name fluxion-vio-app
 ```
 
-Need clustering? Run several instances behind a proxy, or use upstream Fluxion.
+Need clustering? Run several instances behind a proxy, or use upstream Fluxion. To cap memory growth, see [Memory-triggered restart](#memory-triggered-restart) — it restarts in place, so the manager never notices.
 
 ## Migrating from Fluxion
 

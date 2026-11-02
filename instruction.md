@@ -26,6 +26,7 @@ Fluxion Vio is a Node.js server framework with these core concepts:
 - **Lazy loading**: API handler modules are loaded from disk when requested and reloaded as soon as the handler or a file it imports under `dir` changes (mtime or size) — no file watcher. Edits take effect immediately.
 - **Filesystem routing**: files under a `dir` directory become HTTP routes. The file path IS the URL path.
 - **Single-process architecture**: Fluxion Vio runs as a single process. Vio has no built-in clustering or daemon supervisor; use pm2, docker, systemd, or kubernetes when you need more.
+- **Optional in-place restart**: `restartMemoryMB` restarts the process via `process.execve` when RSS exceeds the threshold, reclaiming memory without changing the PID.
 - **API handlers**: TypeScript/JavaScript files matching `apiInclude` patterns (default: `**/*.ts`) are loaded as handler modules.
 - **Static files**: files matching `staticInclude` patterns (default: `**/*`) are served as static resources (GET/HEAD only).
 - **File exclusion**: files matching `exclude` patterns are skipped.
@@ -398,6 +399,9 @@ interface FluxionOptions {
 
   // Security
   csp?: string | false;            // Content-Security-Policy value. Default: "default-src 'self'". false omits the header.
+
+  // Process lifecycle
+  restartMemoryMB?: number | false; // Restart in place (execve) when RSS exceeds this many MB. Default: false (disabled).
 }
 ```
 
@@ -546,6 +550,18 @@ These are baseline hardening measures, not a security boundary. Fluxion Vio does
 ### Process management
 
 Fluxion Vio runs as a single process and ships no daemon supervisor. For production deployments, use process managers like pm2, docker, systemd, or kubernetes.
+
+### Memory-triggered in-place restart
+
+Reloading edited files does not free what the previous instances and V8's compilation cache held, so RSS keeps climbing. Set `restartMemoryMB` to cap it:
+
+```ts
+await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000, restartMemoryMB: 512 });
+```
+
+When RSS exceeds the value (checked 5 seconds after startup, then every 10 seconds), Fluxion Vio logs `Restarting`, stops accepting connections, gives in-flight requests up to 5 seconds, flushes the optional instance log, and calls `process.execve` with the same argv and environment. The PID does not change, so pm2/systemd/Docker never see a restart. Requests during the short gap (tens of milliseconds) fail to connect, so keep a retrying proxy in front if that matters.
+
+The option is off by default. It requires Node.js ≥ 22.15 on Linux or macOS; on other runtimes it is ignored — the server starts normally and logs a single `RestartDisabled` warning instead of failing. If `execve` fails at restart time, the process logs `RestartFailed` and exits with code 1 for a supervisor to restart.
 
 ### Health checks / monitoring endpoints
 

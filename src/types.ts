@@ -146,6 +146,16 @@ export interface FluxionOptions {
    * @example "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' https:"
    */
   csp?: string | false;
+
+  /**
+   * Restart the process in place (`process.execve`) once its resident memory
+   * (RSS) exceeds this many **MB**. Disabled by default.
+   *
+   * Requires Node.js ≥ 22.15 on Linux or macOS. On older runtimes the option
+   * is ignored with a `RestartDisabled` warning at startup.
+   * @example 512
+   */
+  restartMemoryMB?: number | false;
 }
 
 export interface NormalizedFluxionOptions {
@@ -174,6 +184,12 @@ export interface NormalizedFluxionOptions {
    * Content-Security-Policy header value, or `false` to disable the header.
    */
   csp: string | false;
+
+  /**
+   * Resident-memory threshold in MB that triggers an in-place restart, or
+   * `false` when memory-triggered restarts are disabled.
+   */
+  restartMemoryMB: number | false;
 
   // !security check
   normalizedFlag: symbol;

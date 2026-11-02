@@ -108,6 +108,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     ],
     https,
     csp = "default-src 'self'",
+    restartMemoryMB = false,
   } = o as FluxionOptions;
 
   const port = userPort;
@@ -158,11 +159,17 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     throw new FluxionError('FluxionOptions.csp must be a string or false');
   }
 
+  if (restartMemoryMB !== false) {
+    if (typeof restartMemoryMB !== 'number' || !Number.isFinite(restartMemoryMB) || restartMemoryMB <= 0) {
+      throw new FluxionError('FluxionOptions.restartMemoryMB must be a positive number of MB, or false');
+    }
+  }
+
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const result = {
+  const result: NormalizedFluxionOptions = {
     dir,
     host,
     port,
@@ -177,6 +184,7 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     exclude,
     https: normalizeHttpsOptions(https),
     csp,
+    restartMemoryMB,
     normalizedFlag: flags.OptionsNormalized,
   };
 
