@@ -151,9 +151,13 @@ export function watchMemory(options: RestarterOptions): Restarter {
   let timer: NodeJS.Timeout | undefined;
 
   const check = () => {
-    if (restarting) return;
+    if (restarting) {
+      return;
+    }
     const rssMB = megabytes(process.memoryUsage.rss());
-    if (rssMB <= restartMemoryMB) return;
+    if (rssMB <= restartMemoryMB) {
+      return;
+    }
 
     restarting = true;
     if (timer !== undefined) {
@@ -167,7 +171,9 @@ export function watchMemory(options: RestarterOptions): Restarter {
 
   return {
     start() {
-      if (timer !== undefined || restarting) return;
+      if (timer !== undefined || restarting) {
+        return;
+      }
       // Skip the startup phase entirely; the first sample lands when user code
       // has had time to finish its own initialization.
       timer = setTimeout(() => {

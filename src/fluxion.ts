@@ -13,7 +13,11 @@ import { createRouter } from './router/index.js';
  * @package Fluxion Vio
  * @version __VERSION__
  */
-export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions) {
+export async function fluxion(options: FluxionOptions) {
+  if (typeof options !== 'object' || options === null) {
+    throw new TypeError('Invalid fluxion options: expected an object');
+  }
+
   const alreadyNormalized = (options as NormalizedFluxionOptions).normalizedFlag === flags.OptionsNormalized;
   const context = { options: alreadyNormalized ? options : defineFluxionOptions(options) } as FluxionContext;
 
@@ -52,10 +56,7 @@ export async function fluxion(options: FluxionOptions | NormalizedFluxionOptions
   const shutdown = (signal: NodeJS.Signals) => {
     restarter.stop();
     context.logger.warn({ event: 'ShuttingDown', pid: process.pid, signal });
-    server.close(async () => {
-      await context.logger.flush();
-      process.exit(0);
-    });
+    process.exit(0);
   };
 
   process.once('SIGINT', () => shutdown('SIGINT'));
