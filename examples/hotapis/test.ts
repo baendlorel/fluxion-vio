@@ -1,4 +1,4 @@
-import { defineFluxionModule } from '../../src/index.js';
+import { defineFluxionModule } from '../../dist/index.mjs';
 
 export default defineFluxionModule({
   handler: async (req) => {
