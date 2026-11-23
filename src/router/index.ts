@@ -41,9 +41,8 @@ export function createRouter(cx: RouterContext): FluxionRouter {
     const relativePath = url.pathname.replace(/^[/]+/, '').replace(/[/]+$/, '');
     const absolutePath = path.join(cx.options.dir, relativePath);
 
-    // ! 解析后的路径逃出配置目录时直接拒绝
-    const withinDir = path.relative(cx.options.dir, absolutePath);
-    if (withinDir.startsWith('..') || path.isAbsolute(withinDir)) {
+    //! 解析后的路径逃出配置目录时直接拒绝
+    if (absolutePath.includes('..')) {
       return undefined;
     }
 
@@ -63,14 +62,14 @@ export function createRouter(cx: RouterContext): FluxionRouter {
     }
 
     if (cx.options.staticInclude.some((p) => path.matchesGlob(relativePath, p))) {
-      return makeStaticResource(absolutePath);
+      return makeStatic(absolutePath);
     }
 
     return undefined;
   };
 }
 
-function makeStaticResource(absolutePath: string): NormalizedModule {
+function makeStatic(absolutePath: string): NormalizedModule {
   return {
     type: ModuleType.Static,
     mtimeMs: NaN,
