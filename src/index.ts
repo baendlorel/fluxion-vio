@@ -41,6 +41,7 @@ export type {
   FluxionHandler,
   FluxionModule,
   FluxionOptions,
+  FluxionController,
 } from './types.js';
 
 // export { formatError } from './common/logger.js';

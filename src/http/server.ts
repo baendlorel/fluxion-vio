@@ -14,11 +14,85 @@ import { parseQuery } from './query.js';
 import { parseCookie } from './cookie.js';
 import { HttpException } from './exceptions.js';
 
-const waiter = (mainPromise: Promise<any>, timeoutMs: number, flag: symbol) =>
-  Promise.race([mainPromise, new Promise((r) => setTimeout(() => r(flag), timeoutMs))]);
+/**
+ * How a piece of middleware or handler work ended.
+ * - `value`: it settled, and this is what it returned or threw;
+ * - `timeout`: its own timeout fired first;
+ * - `stopped`: the controller's abort signal fired first, so the response is already gone.
+ */
+type Outcome = { kind: 'value'; value: unknown } | { kind: 'timeout' } | { kind: 'stopped' };
 
 /**
- * Run a module's disposer once the response has been sent.
+ * Race a piece of handler work against a timeout and the controller's abort signal.
+ *
+ * The work promise always gets a rejection handler. A failure that loses the race is no longer returned to
+ * the request path (its socket is gone), so it is logged here; one that wins is re-thrown and reported by the
+ * request path exactly like any other failure.
+ */
+async function raceWork(
+  cx: FluxionContext,
+  work: Promise<unknown>,
+  timeoutMs: number,
+  m: NormalizedModule,
+): Promise<Outcome> {
+  // Marked from inside the losing sides of the race, before they resolve, so the flag is already set when a
+  // late rejection arrives on the microtask queue.
+  const abandoned = { current: false };
+
+  work.catch((e: unknown) => {
+    if (abandoned.current) {
+      cx.logger.error({ event: 'HandlerFailedAfterAbandon', url: m.absolutePath, error: formatError(e) });
+    }
+  });
+
+  // Already stopping: do not start new work's timeout window, just report it.
+  if (cx.signal.aborted) {
+    return { kind: 'stopped' };
+  }
+
+  return Promise.race([
+    work.then((value): Outcome => ({ kind: 'value', value })),
+    new Promise<Outcome>((resolve) =>
+      setTimeout(() => {
+        abandoned.current = true;
+        resolve({ kind: 'timeout' });
+      }, timeoutMs),
+    ),
+    new Promise<Outcome>((resolve) =>
+      cx.signal.addEventListener(
+        'abort',
+        () => {
+          abandoned.current = true;
+          resolve({ kind: 'stopped' });
+        },
+        { once: true },
+      ),
+    ),
+  ]);
+}
+
+/**
+ * The timeout that applies to a piece of work, derived from the phase it runs in.
+ * Middlewares have their own budget; API handlers may override the instance default; static resources use the
+ * (much longer) static budget.
+ */
+const timeoutFor = (cx: FluxionContext, m: NormalizedModule, phase: Phase): number => {
+  if (phase === 'middleware') {
+    return cx.options.middlewareTimeoutMs;
+  }
+  return m.type === ModuleType.Api
+    ? (m.handlerTimeoutMs ?? cx.options.handlerTimeoutMs)
+    : cx.options.staticResourceTimeoutMs;
+};
+
+/** Which part of a module is running, so the timeout rule can be picked without the caller knowing it. */
+type Phase = 'middleware' | 'handler';
+
+/** Run a piece of middleware or handler work with the timeout its phase implies. */
+const runPhase = (cx: FluxionContext, m: NormalizedModule, phase: Phase, work: Promise<unknown>): Promise<Outcome> =>
+  raceWork(cx, work, timeoutFor(cx, m, phase), m);
+
+/** Run a module's disposer once the response has been sent.
  * Modules without a disposer are left untouched.
  */
 function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: NormalizedModule) {
@@ -92,7 +166,7 @@ function logResponse(
   cx.logger.core(o);
 }
 
-/** Run the middleware chain. Returns `true` when a middleware already produced the response. */
+/** Run the middleware chain. Returns `true` when a middleware already produced the response or stopped it. */
 async function runMiddlewares(
   cx: FluxionContext,
   moduleCx: FluxionModuleContext,
@@ -102,18 +176,17 @@ async function runMiddlewares(
   res: http.ServerResponse,
 ): Promise<boolean> {
   for (const middleware of m.middlewares ?? []) {
-    const result = await waiter(
-      PromiseTry(middleware, request, moduleCx, req, res),
-      cx.options.middlewareTimeoutMs,
-      flags.MiddlewareTimeout,
-    );
+    const outcome = await runPhase(cx, m, 'middleware', PromiseTry(middleware, request, moduleCx, req, res));
 
-    if (result === flags.MiddlewareTimeout) {
+    if (outcome.kind === 'stopped') {
+      return true;
+    }
+    if (outcome.kind === 'timeout') {
       cx.logger.warn({ event: 'MiddlewareTimeout', method: request.method, ip: request.ip });
       safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
       return true;
     }
-    if (res.writableEnded) {
+    if (res.writableEnded || res.destroyed) {
       return true;
     }
     if (res.headersSent) {
@@ -133,25 +206,19 @@ async function runHandler(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
-  const timeoutMs =
-    m.type === ModuleType.Api
-      ? (m.handlerTimeoutMs ?? cx.options.handlerTimeoutMs)
-      : cx.options.staticResourceTimeoutMs;
+  const outcome = await runPhase(cx, m, 'handler', PromiseTry(m.handler, request, moduleCx, req, res));
 
-  const result = await waiter(
-    PromiseTry(m.handler, request, moduleCx, req, res),
-    timeoutMs,
-    flags.HandlerTimeout,
-  );
-
-  if (result === flags.HandlerTimeout) {
+  if (outcome.kind === 'stopped') {
+    return;
+  }
+  if (outcome.kind === 'timeout') {
     cx.logger.warn({ event: 'HandlerTimeout', method: request.method, ip: request.ip });
     safeSendJson(res, { message: 'Handler timed out' }, HttpCode.InternalServerError);
     return;
   }
 
-  if (result !== flags.StaticHandled) {
-    safeSendJson(res, result);
+  if (outcome.value !== flags.StaticHandled) {
+    safeSendJson(res, outcome.value);
   }
 }
 
@@ -194,6 +261,11 @@ async function handleRequest(
     request = { ...request, body: parsed.body };
     bodyPreview = parsed.preview;
 
+    // A stop may land while the body was being read.
+    if (cx.signal.aborted) {
+      return;
+    }
+
     const m = await cx.router(url);
     if (!m) {
       safeSendJson(res, { message: 'Not Found' }, HttpCode.NotFound);
@@ -217,7 +289,16 @@ async function handleRequest(
   }
 }
 
-export function createServer(cx: FluxionContext): Promise<http.Server | https.Server> {
+/**
+ * The parts of `http.Server` / `https.Server` the controller needs. Both provide them, but `https.Server`
+ * does not extend `http.Server`.
+ */
+export interface ListeningServer {
+  close(cb?: (err?: Error) => void): unknown;
+  closeAllConnections(): void;
+}
+
+export function createServer(cx: FluxionContext): Promise<ListeningServer> {
   const moduleCx: FluxionModuleContext = Object.freeze({ logger: cx.logger });
   const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) =>
     handleRequest(cx, moduleCx, req, res);

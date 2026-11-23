@@ -29,7 +29,15 @@ A TypeScript entry point is _not_ compiled by Fluxion — run it with Node ≥ 2
 ```js
 import { fluxion } from 'fluxion-vio';
 
-await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000 });
+const app = await fluxion({ dir: './dynamic', host: '127.0.0.1', port: 3000 });
+
+// Signal handling is yours to write: `fluxion` binds nothing.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    app.stop(); // abandons in-flight handlers and cuts their responses
+    process.exit(0);
+  });
+}
 ```
 
 `dynamic/hello.ts`:

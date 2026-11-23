@@ -65,12 +65,23 @@ Fluxion Vio is started programmatically. There is no built-in CLI.
 ```ts
 import { fluxion } from 'fluxion-vio';
 
-await fluxion({
+const app = await fluxion({
   dir: './dynamic',       // Required: directory for route files
   host: '127.0.0.1',      // Required: bind address
   port: 3000,              // Required: HTTP port
 });
+
+// Fluxion Vio binds no signal handlers — wire shutdown yourself.
+process.once('SIGINT', () => {
+  app.stop();
+  process.exit(0);
+});
 ```
+
+`fluxion()` resolves to a {@link FluxionController} whose `stop()` is synchronous and idempotent: it stops
+accepting connections, destroys open sockets, and abandons every handler or middleware still running (no
+response is written for them).
+
 
 ### With HTTPS
 

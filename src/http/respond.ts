@@ -8,7 +8,8 @@ export function sendJson(res: ServerResponse, payload: unknown, statusCode: Http
 }
 
 export function safeSendJson(res: ServerResponse, payload: unknown, statusCode: HttpCode = HttpCode.Ok): void {
-  if (res.writableEnded) {
+  // A destroyed response has no socket left to write to: the client is gone or the controller stopped.
+  if (res.destroyed || res.writableEnded) {
     return;
   }
 

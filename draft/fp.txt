@@ -1,0 +1,160 @@
+fluxion-vio 函数式改造记录
+===========================
+
+日期：2026-11-23
+范围：src/ 下除日志输出（logger / output）以外的全部代码
+目标：在保持行为不变的前提下，尽可能贴近函数式风格——纯函数优先、显式数据流、避免隐藏状态与隐式副作用。
+
+先说明：这里的"函数式"不是 Haskell 意义上的纯函数式，而是工程意义上的"少一些类、少一些 this、
+少一些模块级可变状态、多一些显式传参"。Node 的 HTTP 模型本身是命令式的，最终会碰到天花板。
+
+
+一、改造前的状态（距离函数式有多远）
+------------------------------------
+
+改前并不是面向对象风格：整个 src 只有两处 class。
+
+  src/common/loader.ts   class FluxionLoader        <- 唯一的"业务类"
+  src/common/error.ts    class FluxionError         <- 继承 Error，合理
+  src/http/exceptions.ts class HttpException 等     <- 继承 Error，合理
+
+但函数式程度也不高，主要问题有五类：
+
+1. 模块级可变单例
+   src/common/loader.ts 里 `export const moduleCache = new Map<string, LoadedModule>()`
+   是跨实例共享的全局可变状态；谁都能 import 进来改，生命周期不受任何对象控制。
+
+2. this 方法与隐式接收者
+   FluxionLoader 有 6 个私有方法，全部通过 `this.` 互调，实际依赖关系（cache、opts）
+   被藏进对象状态里，读单个函数时需要回看整个类。
+
+3. 共享对象原地赋值
+   injector.ts 往用户模块对象上直接写 `m.absolutePath = ...; m.mtimeMs = ...`，
+   污染了模块缓存里的对象；
+   http/server.ts 往 request 快照上写 `normalized.body = parsed.body`；
+   query.ts / cookie.ts 用 for 循环 + 原地 `cookies[k] = v` 累积。
+
+4. 巨型过程函数
+   http/server.ts 的 requestHandler 单函数约 150 行，串起了 URL 解析、安全头、日志、
+   body 解析、路由、方法校验、disposer、中间件、handler、异常处理十件事，
+   没有任何可单独复用的中间步骤。
+
+5. 命令式校验与命名空间
+   defines/options.ts 是 12 个连续 if + throw；
+   consts.ts 用 `export namespace flags` 装 Symbol（namespace 是可变的运行期对象）。
+
+
+二、已完成的改造
+----------------
+
+1. 消除全局可变缓存（最重要）
+   moduleCache 不再是模块单例，而是 `ModuleCache = Map<...>` 类型，由 fluxion() 创建、
+   通过 FluxionContext 显式传给 router / loader。两个 fluxion() 实例天然互不可见。
+   相关文件：src/common/loader.ts, src/fluxion.ts, src/router/index.ts, src/types.ts
+
+2. FluxionLoader class -> 一组纯函数
+   改为 requireModule(cache, options, path) + loadFile / loadFresh / evaluate /
+   collectChain / anyStale / createModuleRequire / compile / buildFunction。
+   状态（cache）作为第一个参数显式传入，不再有 this。
+   顺带消掉一个隐患：原来每处理一个请求就 new 一个 FluxionLoader（只为持有 opts），
+   现在没有对象可建。
+
+3. 校验函数纯化
+   injector.ts: isFluxionModule(cx, o) -> rejectModule(o): ModuleRejection | undefined
+   校验不再依赖 logger、不再打日志，只回答"哪里不合格"，由调用方决定怎么处理。
+   defines/index.ts 与 defines/options.ts 改为声明式规则表：
+     type Rule = readonly [holds: boolean, message: string]
+     firstViolation(rules) / assert(rules)
+   12 个 if 变成一张不可变的规则数组 + 一个 find。
+
+4. 对象不再被原地修改
+   injector.ts: normalizeModule 用 `{ ...m, absolutePath, mtimeMs }` 返回新对象；
+   http/server.ts: request 快照在 body 解析完成后重新绑定 `request = { ...request, body }`，
+   不再写回同一个对象；
+   query.ts / cookie.ts: for 循环 -> reduce + 展开。
+
+5. requestHandler 拆成小函数
+   http/server.ts 现在由这些纯/近纯函数组成：
+     toFluxionRequest(req, url)     纯函数：由 req 与 url 推导出请求快照
+     applySecurityHeaders(res, csp)  只做头部注入
+     logResponse(...)                只负责一条 response 日志
+     runMiddlewares(...)             返回 true 表示已响应
+     runHandler(...)                 调用 handler 并写响应
+     reportFailure(...)              把异常映射为响应，不泄漏内部信息
+     handleRequest(...)              只做编排
+   "中间件超时 / handler 超时 / 被 stop 中断"三种旁路从符号 flag 改成显式联合类型：
+     type Outcome = { kind: 'value'; value } | { kind: 'timeout' } | { kind: 'stopped' }
+   调用方对 outcome.kind 做模式匹配，不再依赖 Symbol 相等比较。
+
+6. 命名空间与依赖清理
+   consts.ts: `export namespace flags` -> `export const flags = Object.freeze({...})`；
+   移除 type-narrow 依赖（唯一用途是 static_cast，纯开发期类型断言），
+   同时删掉 tsdown 的 onlyBundle 与 package.json 的 inlinedDependencies。
+
+
+三、stop 控制器改造（与函数式相关）
+----------------------------------
+
+fluxion() 不再替使用者绑定 SIGINT / SIGTERM，也不再 process.exit。
+它返回一个控制器：
+
+  interface FluxionController { stop(): void }
+
+  const app = await fluxion({...});
+  process.once('SIGTERM', () => { app.stop(); process.exit(0); });
+
+stop() 的语义：同步、幂等。
+  1) abort 该实例的 AbortController —— signal 被 request 路径参与 race，
+     所有仍在运行的中置件 / handler 立即被放弃，不再写响应；
+  2) server.close() 停止接受新连接；
+  3) server.closeAllConnections() 切断已建立的 socket。
+
+实现上是把"生命周期"建模为一个显式信号（AbortSignal），而不是散落的布尔标志：
+上下文里只有 signal + 一个 abort 函数，请求路径每次 race 都读它，stop 不需要追踪任何请求。
+这与函数据流一致——状态有一处权威来源，其余都是它的读取者。
+
+
+四、仍未函数式化，以及原因（天花板在哪）
+----------------------------------------
+
+1. http.IncomingMessage / ServerResponse 本质是命令式资源。
+   res.setHeader / res.end / res.once('close') 都是原地副作用，无法改成返回值。
+   我们能做到的是：把副作用集中到少数几个函数（applySecurityHeaders / safeSendJson /
+   disposeAfterResponse），业务逻辑保持纯。
+
+2. 流式 body 读取与静态文件发送（http/body.ts, router/index.ts 的 static handler）
+   需要监听 data / end / error / aborted，并用局部 let 跟踪 totalBytes、settled 等状态。
+   这是一个事件驱动的状态机；硬改成递归或 reduce 只会更难读。
+   保留现状，但已把 preview 计算抽成纯函数 createPreview。
+
+3. req.meta 仍是跨中间件共享的可变对象。
+   这是公开 API 契约（文档承诺中间件之间通过 meta 传值），改成不可变会破坏使用者代码。
+
+4. 异常体系继续用 class。
+   JS 中识别错误实例的唯一实用手段是 instanceof；换成 { code } 对象会让 !important 的
+   `throw new NotFoundException()` 失去了堆栈与类型收窄。
+
+5. process.once / process.argv / process.cwd 等进程级读取
+   集中在 fluxion() 与 defineFluxionOptions 入口处，属于 unavoidable 的边界效应，
+   未再向下传播。
+
+6. body 解析里的 JSON.parse 与 content-type 分支
+   可以改成查表，但当前 4 个分支语义差异大（对象/原始值/表单/文本），
+   查表反而不如 if 清晰，保持。
+
+五、总结与后续可选项
+--------------------
+
+当前 src 中函数式程度的粗略度量：
+  - class 仅剩 3 个，全部是 Error 子类（合理）；
+  - 模块级可变状态 0 个（moduleCache 已收敛到实例）；
+  - 业务逻辑里的 let 仅剩 2 处（logger 的字符串拼接、cookie 序列化），
+    其余 let 都在事件状态机或请求快照重绑定里；
+  - 每个文件的导出都是函数或冻结常量。
+
+若继续推进，排序建议：
+  A. 把 http/body.ts 的 readRequestBodyWithPreview 用 async iterator
+     (for await (const chunk of req)) 重写，可去掉大部分运行期 let，收益中等、风险低。
+  B. 把静态文件发送抽成 sendFile(res, absolutePath) 独立模块，让 router 只做路由。
+  C. 用 Result 类型（{ ok: true; value } | { ok: false; error }）替代抛异常的内部路径，
+     但公开 API 仍保留 HttpException——收益低，不建议。

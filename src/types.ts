@@ -202,6 +202,26 @@ export interface FluxionContext {
    * one process do not share loaded code.
    */
   moduleCache: ModuleCache;
+  /**
+   * Aborted when the controller stops: in-flight middleware and handlers are abandoned and their responses
+   * are cut off.
+   */
+  signal: AbortSignal;
+  /** Abort {@link FluxionContext.signal}. Internal: called once by the controller's `stop`. */
+  abort(): void;
+}
+
+/**
+ * The handle `fluxion()` returns. Signal handling is the caller's job: bind `SIGINT` / `SIGTERM` yourself and
+ * call {@link FluxionController.stop} when they arrive.
+ */
+export interface FluxionController {
+  /**
+   * Force every in-flight request to end: new connections stop being accepted, open sockets are destroyed,
+   * and any handler or middleware still running is abandoned (no response is written). Synchronous, and safe
+   * to call more than once.
+   */
+  stop(): void;
 }
 
 export interface FluxionModuleContext {
