@@ -64,8 +64,15 @@ export const installDefineShim = (dir: string): void => {
     'node_modules/fluxion-vio/index.cjs': [
       'exports.defineFluxionModule = (a) =>',
       "  typeof a === 'function' ? { handler: a, type: 0 } : { ...a, type: 0 };",
+      // 与真实构建一致：用 Symbol.for 标记，isHttpException 靠它识别（跨 ESM/CJS 都是同一个 symbol）。
+      "const MARK = Symbol.for('FLUXION_HTTP_EXCEPTION');",
       'class HttpException extends Error {',
-      '  constructor(message, errno, code) { super(message); this.errno = errno; this.code = code; }',
+      '  constructor(message, errno, code) {',
+      '    super(message);',
+      '    this.errno = errno;',
+      '    this.code = code;',
+      '    this[MARK] = true;',
+      '  }',
       '}',
       "class NotFoundException extends HttpException { constructor(m = 'Not Found') { super(m, 404, 'NOT_FOUND'); } }",
       'exports.HttpException = HttpException;',

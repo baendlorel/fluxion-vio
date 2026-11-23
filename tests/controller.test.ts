@@ -118,12 +118,12 @@ describe('HTTP 基础行为', () => {
   });
 
   it('自定义 HTTP 异常按 errno 响应', async () => {
-    // 这里的 shim 是非抽象类、无标记，模拟不了真实构建；真实跨构建行为见 controller.e2e.test.ts。
-    // 本用例只锁定"带 errno 的异常走异常分支"这条协议。
+    // shim 的 HttpException 与真实构建一样带 Symbol.for 标记，所以这里测的是真实的识别协议。
+    // 真实的跨 ESM/CJS 构建行为见 controller.e2e.test.ts。
     const { app, url } = await startApp({
       'missing.ts': [
-        "import { defineFluxionModule } from 'fluxion-vio';",
-        'class Custom extends Error { constructor(m) { super(m); this.errno = 418; this.fluxionHttpException = true; } }',
+        "import { defineFluxionModule, HttpException } from 'fluxion-vio';",
+        "class Custom extends HttpException { constructor(m) { super(m, 418, 'TEAPOT'); } }",
         "export default defineFluxionModule(() => { throw new Custom('teapot'); });",
         '',
       ].join('\n'),
