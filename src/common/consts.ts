@@ -1,4 +1,6 @@
-/** 解析 req.url 时用的虚拟 base，仅用于拿到 pathname 与 searchParams。 */
+/**
+ * 解析 req.url 时用的虚拟 base，仅用于拿到 pathname 与 searchParams。
+ */
 export const DUMMY_BASE_URL = 'http://fluxion.local';
 
 /** 内部标记值，用 Symbol 避免与用户返回值冲突。 */
@@ -7,7 +9,9 @@ export const flags = Object.freeze({
   StaticHandled: Symbol('fluxion.router.StaticHandled'),
 });
 
-/** 静态资源扩展名到 Content-Type 的映射。 */
+/**
+ * 静态资源扩展名到 Content-Type 的映射。
+ */
 export const STATIC_CONTENT_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -108,5 +112,5 @@ export enum HttpCode {
 
 export const enum ModuleType {
   Api,
-  StaticResource,
+  Static,
 }

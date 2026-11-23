@@ -68,7 +68,7 @@ export function createRouter(cx: RouterContext): FluxionRouter {
 
 function makeStaticResource(absolutePath: string): NormalizedModule {
   return {
-    type: ModuleType.StaticResource,
+    type: ModuleType.Static,
     mtimeMs: NaN,
     absolutePath,
     handler: async (normalized, cx, req, res) => {
