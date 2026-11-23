@@ -39,9 +39,6 @@ importers:
       tslib:
         specifier: ^2.8.1
         version: 2.8.1
-      type-narrow:
-        specifier: ^0.2.2
-        version: 0.2.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -1137,9 +1134,6 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  type-narrow@0.2.2:
-    resolution: {integrity: sha512-7ELLtGiNW0P04Ljt5dyWqS4rfZ3IgVF58BNtKSsi9yKIkuvBTE9lCiSv6dFVDEaaNGPG88UJoYki9UQEkNHWmQ==}
-
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -2095,8 +2089,6 @@ snapshots:
       esbuild: 0.28.0
     optionalDependencies:
       fsevents: 2.3.3
-
-  type-narrow@0.2.2: {}
 
   typescript@6.0.3: {}
 
