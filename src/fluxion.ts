@@ -8,15 +8,14 @@ import { defineFluxionOptions } from './defines/options.js';
 import { createServer, type ListeningServer } from './http/server.js';
 import { createRouter } from './router/index.js';
 
-// EPIC 为了更加接近原生的php行为，还可以采用进程运行法，把spawn的tsx的stdio捕获后，完成返回。
-// 类似于const result = execSync('tsx your-script.ts', { stdio: 'pipe' }); 然后让接口返回result.
+// EPIC 为了更加接近原生的 php 行为，还可以采用进程运行法：把 spawn 出来的 tsx 的 stdio 捕获后直接返回。
+// 类似 const result = execSync('tsx your-script.ts', { stdio: 'pipe' })，然后让接口返回 result。
 
 /**
- * Build the controller handed back to the caller.
+ * 构造返回给调用方的控制器。
  *
- * `stop` is synchronous and idempotent: it aborts the instance's signal (which abandons every middleware and
- * handler still racing it), then closes the listener and destroys the remaining sockets, so no request can
- * outlive the call.
+ * stop 是同步且幂等的：先中止实例信号（所有仍在赛跑的中间件和 handler 立即被放弃），
+ * 再关闭监听并销毁剩余连接，确保没有请求能活过这次调用。
  */
 function createController(cx: FluxionContext, server: ListeningServer): FluxionController {
   const stop = (): void => {
@@ -25,7 +24,7 @@ function createController(cx: FluxionContext, server: ListeningServer): FluxionC
     }
     cx.abort();
     cx.logger.warn({ event: 'Stopped', pid: process.pid });
-    // `close` stops new connections; `closeAllConnections` cuts the current ones so nothing keeps running.
+    // close 停止新连接，closeAllConnections 切断现存连接。
     server.close();
     server.closeAllConnections();
   };
@@ -34,9 +33,9 @@ function createController(cx: FluxionContext, server: ListeningServer): FluxionC
 }
 
 /**
- * Creates a fluxion-vio server instance.
+ * 创建 fluxion-vio 服务实例。
  *
- * Signal handling belongs to the caller: bind `SIGINT` / `SIGTERM` yourself and call `controller.stop()`.
+ * 信号处理交给调用方：自行监听 SIGINT / SIGTERM，并在其中调用 controller.stop()。
  * @package Fluxion Vio
  * @version __VERSION__
  */
@@ -48,7 +47,7 @@ export async function fluxion(options: FluxionOptions): Promise<FluxionControlle
   const alreadyNormalized = (options as NormalizedFluxionOptions).normalizedFlag === flags.OptionsNormalized;
   const normalized = alreadyNormalized ? (options as NormalizedFluxionOptions) : defineFluxionOptions(options);
 
-  // Before anything is logged, so a startup failure (a busy port) lands in the file too.
+  // 在任何日志之前重定向输出，这样启动失败（比如端口占用）也能落进文件。
   if (normalized.logOutputFile) {
     await redirectOutput(normalized.logOutputFile);
   }
@@ -57,11 +56,10 @@ export async function fluxion(options: FluxionOptions): Promise<FluxionControlle
   const moduleCache: ModuleCache = new Map();
   const router = createRouter({ options: normalized, logger, moduleCache });
 
-  // One abort controller per instance. Its signal is what the request path races against, so `stop` reaches
-  // handlers that are already running without them having to be tracked anywhere.
+  // 每个实例一个 AbortController。请求路径与它的 signal 赛跑，所以 stop 无需追踪具体请求就能作用于运行中的 handler。
   const lifecycle = new AbortController();
 
-  // The cache and the router are per instance: nothing loaded by one `fluxion()` call is visible to another.
+  // 缓存和路由都是实例级的：一次 fluxion() 加载的代码对另一次不可见。
   const context: FluxionContext = {
     options: normalized,
     logger,

@@ -5,17 +5,13 @@ import path from 'node:path';
 
 import { flags } from '@/common/consts.js';
 
-/**
- * Read certificate content from a file path or return the content directly.
- * Relative paths are resolved against the current working directory.
- */
+/** 读取证书内容：传入路径则读文件，传入内容则原样返回。相对路径基于当前工作目录。 */
 function readCertificateContent(content: string | Buffer): Buffer {
   if (Buffer.isBuffer(content)) {
     return content;
   }
   if (typeof content === 'string') {
-    // Check if it looks like a file path (not a PEM certificate)
-    // PEM certificates start with "-----BEGIN"
+    // 判断像不像文件路径：PEM 证书以 "-----BEGIN" 开头
     if (!content.startsWith('-----BEGIN')) {
       const filePath = path.resolve(content);
       if (fs.existsSync(filePath)) {
@@ -27,9 +23,7 @@ function readCertificateContent(content: string | Buffer): Buffer {
   throw new FluxionError('Certificate content must be a string or Buffer');
 }
 
-/**
- * Normalize HTTPS options.
- */
+/** 规范化 HTTPS 选项。 */
 function normalizeHttpsOptions(https: FluxionOptions['https']): NormalizedFluxionOptions['https'] | undefined {
   if (!https) {
     return undefined;
@@ -61,10 +55,10 @@ function normalizeHttpsOptions(https: FluxionOptions['https']): NormalizedFluxio
   return result;
 }
 
-/** A `[holds, message]` pair: the message is thrown when `holds` is false. */
+/** [是否成立, 错误信息] 二元组：不成立时抛出该信息。 */
 type Rule = readonly [holds: boolean, message: string];
 
-/** Return the first failing rule's message, or `undefined` when every rule holds. */
+/** 返回第一条不成立的规则信息；全部成立时返回 undefined。 */
 const firstViolation = (rules: readonly Rule[]): string | undefined => rules.find(([holds]) => !holds)?.[1];
 
 const DEFAULT_EXCLUDE = [
@@ -93,9 +87,7 @@ const INCLUDE_REMOVED = [
 
 const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((item) => typeof item === 'string');
 
-/**
- * Normalize options and create necessary resources like the dynamic directory and logger.
- */
+/** 规范化选项，并按需创建动态目录等资源。 */
 export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOptions {
   const {
     dir: rawDir,
@@ -140,10 +132,10 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     throw new FluxionError(violation);
   }
 
-  // Ends with a separator, so "is this file under dir" is a plain `startsWith`
+  // 末尾带分隔符，判断某文件是否在 dir 下用 startsWith 即可
   const resolvedDir = path.resolve(process.cwd(), rawDir);
   const dir = resolvedDir.endsWith(path.sep) ? resolvedDir : resolvedDir + path.sep;
-  // Relative paths follow `dir` and `https`: resolved against the cwd.
+  // 与 dir、https 一致，相对路径基于 cwd 解析
   const logOutputFile = rawLogOutputFile === undefined ? undefined : path.resolve(process.cwd(), rawLogOutputFile);
 
   if (!fs.existsSync(dir)) {

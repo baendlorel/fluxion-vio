@@ -3,13 +3,13 @@ import { mkdir, open } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 /**
- * Send everything written to `process.stdout` / `process.stderr` (so `console.*` too) to `filePath`, appending.
+ * 把写入 process.stdout / process.stderr 的内容（含 console.*）追加到 filePath。
  *
- * Writes are synchronous: nothing is buffered, so there is nothing to flush before `process.exit`.
+ * 写入是同步的：没有缓冲，process.exit 前无需 flush。
  */
 export async function redirectOutput(filePath: string): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true });
-  // The handle stays referenced by the closure below; a collected FileHandle would close the fd under us.
+  // 让下面的闭包持有 handle；否则 FileHandle 被回收会把 fd 一起关掉。
   const handle = await open(filePath, 'a');
 
   const write = (chunk: string | Uint8Array, encoding?: unknown, cb?: unknown) => {

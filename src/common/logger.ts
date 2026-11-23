@@ -13,17 +13,13 @@ export interface LogEntry {
 }
 
 /**
- * `'json-line'` writes one JSON object per line. `one-line` is intentionally
- * not built in: write your own function with {@link defineFluxionLogger}.
+ * 'json-line' 每行写一个 JSON 对象。刻意不内置单行模式：需要的话用 {@link defineFluxionLogger} 自己写。
  */
 export type LoggerOption = 'json-line' | FluxionLoggerFn;
 
 export type FluxionLoggerFn = (entry: LogEntry) => void;
 
-/**
- * A log payload is either a plain object, whose fields are merged into the
- * entry, or a primitive, which becomes the `event` field.
- */
+/** 日志载荷：普通对象会把字段合并进条目，原始值则成为 event 字段。 */
 export type LogPayload = string | number | boolean | bigint | null | undefined | MessageObject;
 
 export interface MessageObject {
@@ -32,10 +28,7 @@ export interface MessageObject {
 }
 
 export interface FluxionLogger {
-  /**
-   * Primitive payloads become `event`; object payloads are spread over the
-   * default `timestamp`, `level` and `event` fields.
-   */
+  /** 原始值成为 event；对象载荷会覆盖默认的 timestamp、level、event 字段。 */
   write(level: LogLevel, payload: LogPayload): void;
   info(payload: LogPayload): void;
   warn(payload: LogPayload): void;
@@ -46,15 +39,11 @@ export interface FluxionLogger {
 }
 
 /**
- * Internal-only logger used by fluxion's own subsystems (router, injector,
- * ...). It extends the public {@link FluxionLogger}
- * with a `core` level that records framework-originated logs — e.g. route
- * registration, module lifecycle — so they are visually distinct
- * from logs emitted by user handlers.
+ * 仅供框架内部（router、injector 等）使用的 logger。
+ * 在公开的 {@link FluxionLogger} 之上增加了 core 级别，用来记录框架自身的日志
+ * （如路由解析、模块生命周期），以便和用户 handler 的日志区分开。
  *
- * ! This type is NOT exported to application code: {@link FluxionModuleContext}
- * exposes only {@link FluxionLogger}, keeping
- * `core` off-limits to user handlers.
+ * ! 此类型不导出给应用代码：{@link FluxionModuleContext} 只暴露 {@link FluxionLogger}，core 不对用户开放。
  */
 export interface InternalFluxionLogger extends FluxionLogger {
   core(payload: LogPayload): void;
@@ -63,16 +52,11 @@ export interface InternalFluxionLogger extends FluxionLogger {
 const isMessageObject = (payload: LogPayload): payload is MessageObject =>
   typeof payload === 'object' && payload !== null && !Array.isArray(payload);
 
-/**
- * ! Error.isError needs Node.js 24
- */
+/** ! Error.isError 需要 Node.js 24 */
 const isError = (value: unknown): value is Error =>
   typeof Error.isError === 'function' ? Error.isError(value) : value instanceof Error;
 
-/**
- * Turn anything thrown or passed as an error into a printable string:
- * the `message`, followed by the `stack` on the next line when present.
- */
+/** 把任何抛出值转成可打印字符串：message，有 stack 时再换行接上。 */
 export function formatError(e: unknown): string {
   if (typeof e === 'object' && e !== null) {
     const { message, stack } = e as { message?: unknown; stack?: unknown };
@@ -94,7 +78,7 @@ const jsonReplacer = (_key: string, value: unknown): unknown => {
   if (typeof value === 'bigint') {
     return value.toString();
   }
-  // Errors serialize to `{}` on their own, so expand them to message + stack.
+  // Error 直接序列化会变成 {}，所以展开成 message + stack。
   if (isError(value)) {
     return formatError(value);
   }
@@ -108,9 +92,7 @@ const fallbackLine = (entry: LogEntry): string =>
     event: '[unserializable]',
   });
 
-/**
- * Serialize one entry as a single JSON line.
- */
+/** 把一条日志序列化成单行 JSON。 */
 const safeStringify = (entry: LogEntry): string => {
   try {
     return JSON.stringify(entry, jsonReplacer) ?? fallbackLine(entry);
@@ -119,17 +101,13 @@ const safeStringify = (entry: LogEntry): string => {
   }
 };
 
-/**
- * Default sink: one JSON object per line on stdout.
- */
+/** 默认输出：stdout 上每行一个 JSON 对象。 */
 export const jsonLineLogger: FluxionLoggerFn = (entry: LogEntry) => {
   // eslint-disable-next-line no-console
   console.log(safeStringify(entry));
 };
 
-/**
- * 创建文件日志写入器
- */
+/** 创建文件日志写入器。 */
 function createFileSink(logFilePath: string): FluxionLoggerFn {
   // 确保日志目录存在
   if (!existsSync(logFilePath)) {
@@ -150,9 +128,7 @@ function createFileSink(logFilePath: string): FluxionLoggerFn {
   };
 }
 
-/**
- * & Logger Options here is checked by normalizeOptions function.
- */
+/** 此处的 logger 选项已在 options 规范化阶段校验过。 */
 function resolveLoggerSink(cx: Pick<FluxionContext, 'options'>): FluxionLoggerFn {
   const instanceLogPath = process.env.FLUXION_INSTANCE_LOG;
   const consoleSink = cx.options.logger === 'json-line' ? jsonLineLogger : cx.options.logger;
@@ -172,8 +148,7 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
   const sink = resolveLoggerSink(cx);
 
   const write = (level: LogLevel, payload: LogPayload): void => {
-    // Default fields come first in insertion order; the spread lets a user
-    // field override `timestamp`, `level` or `event`.
+    // 默认字段先插入；展开在后的用户字段可以覆盖 timestamp、level、event。
     const timestamp = new Date().toISOString();
     const entry: LogEntry = isMessageObject(payload)
       ? { timestamp, level, event: payload.event, ...payload }
@@ -182,7 +157,7 @@ export function createLogger(cx: Pick<FluxionContext, 'options'>): InternalFluxi
     try {
       sink(entry);
     } catch {
-      // Ignore logger sink failures to avoid breaking request handling.
+      // 忽略日志输出失败，避免影响请求处理。
     }
   };
 

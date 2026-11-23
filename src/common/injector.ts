@@ -2,46 +2,43 @@ import type { NormalizedModule } from '@/types.js';
 import type { Stats } from 'node:fs';
 import { ModuleType } from './consts.js';
 
-/** Why a value is not a usable `NormalizedModule`. */
-export type ModuleRejection =
-  | 'handler must be a function'
-  | 'disposer must be a function if provided'
-  | 'handlerTimeoutMs must be an integer >= 100 if provided'
-  | 'You must use defineFluxionModule to create module';
+/** 一个值不能用作 NormalizedModule 的原因。 */
+export const enum ModuleRejection {
+  HandlerMustBeFunction = 'handler must be a function',
+  DisposerMustBeFunctionIfProvided = 'disposer must be a function if provided',
+  HandlerTimeoutMsMustBeInteger = 'handlerTimeoutMs must be an integer >= 100 if provided',
+  MustUseDefineFluxionModule = 'You must use defineFluxionModule to create module',
+}
 
-/**
- * Validate a value loaded from disk. Pure: returns the defect instead of logging it, so the caller decides
- * what to do with it.
- */
+/** 校验从磁盘加载的值。纯函数：只返回缺陷而不记日志，如何处理由调用方决定。 */
 export function rejectModule(o: unknown): ModuleRejection | undefined {
   if (typeof o !== 'object' || o === null) {
-    return 'You must use defineFluxionModule to create module';
+    return ModuleRejection.MustUseDefineFluxionModule;
   }
 
   const m = o as NormalizedModule;
 
   if (typeof m.handler !== 'function') {
-    return 'handler must be a function';
+    return ModuleRejection.HandlerMustBeFunction;
   }
   if (m.disposer !== undefined && typeof m.disposer !== 'function') {
-    return 'disposer must be a function if provided';
+    return ModuleRejection.DisposerMustBeFunctionIfProvided;
   }
 
   const ms = m.handlerTimeoutMs;
   if (ms !== undefined && (!Number.isSafeInteger(ms) || ms < 100)) {
-    return 'handlerTimeoutMs must be an integer >= 100 if provided';
+    return ModuleRejection.HandlerTimeoutMsMustBeInteger;
   }
   if (m.type !== ModuleType.Api) {
-    return 'You must use defineFluxionModule to create module';
+    return ModuleRejection.MustUseDefineFluxionModule;
   }
   return undefined;
 }
 
 /**
- * Attach the load metadata to a freshly loaded module.
+ * 给刚加载的模块附上加载元信息。
  *
- * The spread is deliberate: the object was created by user code and is kept in the module cache, so it must
- * not be mutated in place.
+ * 这里必须用展开：对象由用户代码创建且存于模块缓存中，不能原地修改。
  */
 export const normalizeModule = (m: NormalizedModule, absolutePath: string, stat: Stats): NormalizedModule => ({
   ...m,
@@ -49,10 +46,7 @@ export const normalizeModule = (m: NormalizedModule, absolutePath: string, stat:
   mtimeMs: stat.mtimeMs,
 });
 
-/**
- * Pick the module out of a file's exports: a `defineFluxionModule` result is usable as `default` or as the
- * export object itself.
- */
+/** 从文件 exports 中取出模块：defineFluxionModule 的结果可以放在 default，也可以是 exports 本身。 */
 export function selectModule(exports: any): { module?: NormalizedModule; rejection?: ModuleRejection } {
   const asDefault = rejectModule(exports?.default);
   if (asDefault === undefined) {
@@ -62,6 +56,6 @@ export function selectModule(exports: any): { module?: NormalizedModule; rejecti
   if (asExports === undefined) {
     return { module: exports };
   }
-  // The `default` export is what a handler file is expected to provide, so report its defect.
+  // handler 文件应当提供 default 导出，所以报告它的缺陷。
   return { rejection: asDefault };
 }

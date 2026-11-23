@@ -1,6 +1,5 @@
 /**
- * Fold the parameters into an object of `string | string[]`: a key seen once stays a string, a repeated key
- * becomes an array in first-seen order.
+ * 把查询参数折叠成 string | string[]：只出现一次保持字符串，重复出现则按首次出现顺序变成数组。
  */
 export function parseQuery(searchParams: URLSearchParams): Record<string, string | string[]> {
   return [...searchParams.entries()].reduce<Record<string, string | string[]>>((query, [key, value]) => {

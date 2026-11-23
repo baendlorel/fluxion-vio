@@ -4,42 +4,29 @@ import type { ModuleCache } from '@/common/loader.js';
 import type { FluxionRouter } from './router/index.js';
 import type { ModuleType } from './common/consts.js';
 
+/** 任意字符串，用于放宽联合类型同时保留字面量提示。 */
 export type otherstring = string & {};
 
 export interface FluxionRequest {
-  /**
-   * HTTP request method (GET, POST, PUT, DELETE, etc.)
-   */
+  /** HTTP 请求方法（GET、POST、PUT、DELETE 等） */
   method: string;
 
-  /**
-   * Client IP address (supports X-Forwarded-For and X-Real-IP headers)
-   */
+  /** 客户端 IP（支持 X-Forwarded-For 与 X-Real-IP） */
   ip: string;
 
-  /**
-   * Parsed request URL
-   */
+  /** 解析后的请求 URL */
   url: URL;
 
-  /**
-   * Parsed query parameters from URL search string
-   */
+  /** 由 search string 解析出的查询参数 */
   query: Record<string, string | string[]>;
 
-  /**
-   * Parsed request body (JSON, form data, etc.)
-   */
+  /** 解析后的请求体（JSON、表单等） */
   body: Record<string, any>;
 
-  /**
-   * Raw HTTP request headers
-   */
+  /** 原始 HTTP 请求头 */
   headers: http.IncomingHttpHeaders;
 
-  /**
-   * Parsed cookies from the Cookie header
-   */
+  /** 从 Cookie 头解析出的 cookie */
   cookie: Record<string, string>;
 
   meta: Record<any, any>;
@@ -47,8 +34,8 @@ export interface FluxionRequest {
 
 export interface FluxionOptions {
   /**
-   * The directory where dynamic files (e.g. uploaded files) will be stored. It will be created if it doesn't exist.
-   * It is recommended to use an empty directory that is not used for any other purpose, to avoid potential conflicts or security issues.
+   * 动态文件（路由文件、上传文件等）所在目录，不存在时会创建。
+   * 建议使用专用于此的目录，避免冲突或安全问题。
    */
   dir: string;
 
@@ -56,115 +43,84 @@ export interface FluxionOptions {
 
   port: number;
 
-  /**
-   * Default to 5000ms.
-   */
+  /** 默认 5000ms。 */
   handlerTimeoutMs?: number;
 
-  /**
-   * Timeout for each middleware execution.
-   * Default to 3000ms.
-   */
+  /** 每个中间件的执行超时，默认 3000ms。 */
   middlewareTimeoutMs?: number;
 
-  /**
-   * Default to 3 minutes 3*60*1000ms.
-   */
+  /** 默认 3 分钟（3*60*1000ms）。 */
   staticResourceTimeoutMs?: number;
 
   /**
-   * esbuild `target` used to compile the files under `dir`, e.g. `'node20'` or `['node20', 'es2022']`.
-   * Defaults to the major version of the running Node.js, like `node24`.
+   * 编译 `dir` 下文件时使用的 esbuild target，如 'node20' 或 ['node20', 'es2022']。
+   * 默认取运行中 Node.js 的主版本号，如 node24。
    */
   target?: string | string[];
 
-  /**
-   * Maximum request body bytes accepted by dynamic handlers.
-   * Requests larger than this limit will return 413.
-   */
+  /** 动态 handler 可接受的请求体最大字节数，超出返回 413。 */
   maxRequestBytes?: number;
 
   /**
-   * Logger output mode or custom logger sink.
-   * Defaults to `json-line`: one JSON object per line, with `timestamp`,
-   * `level` and `event` fields. There is no built-in one-line mode — write
-   * your own logger function if you want a human-readable format.
+   * 日志输出模式或自定义 logger。
+   * 默认 'json-line'：每行一个 JSON 对象，含 timestamp、level、event 字段。
+   * 不内置单行模式——要人类可读格式请自己写 logger 函数。
    *
-   * Also accepts a logger function that will replace the default one.
-   *
-   * ! **ATTENTION** Fluxion calls the logging function synchronously and fails silently; make sure to handle exceptions yourself.
+   * ! **注意** 框架同步调用日志函数且静默吞掉异常，请自行处理。
    */
   logger?: LoggerOption;
 
   /**
-   * Redirect the process's stdout and stderr to this file. It is opened in
-   * append mode, and its parent directories are created when missing.
+   * 把进程的 stdout 和 stderr 重定向到该文件，追加写入，父目录不存在会创建。
    *
-   * Relative paths are resolved against `process.cwd()`. Everything the
-   * process prints after `fluxion()` opens the file ends up here — including
-   * `console.log` calls from your handlers. Output written before that call
-   * has already gone to the terminal.
+   * 相对路径基于 process.cwd()。调用 fluxion() 之后进程打印的一切都进文件，
+   * 包括 handler 里的 console.log；调用之前打印的仍去了终端。
    * @example './logs/server.log'
    */
   logOutputFile?: string;
 
   /**
-   * Glob patterns for files that should be treated as API handlers.
-   * Files matching these patterns will be loaded as handlers and served as APIs.
-   * Defaults to TypeScript files (*.ts).
-   * @example ['*.api.ts', 'handlers/*.js'] - treat specific patterns as APIs
+   * 视为 API handler 的 glob 模式，命中者会被加载为 handler 并作为 API 提供。
+   * 默认匹配全部 .ts 文件。
+   * @example ['*.api.ts', 'handlers/*.js']
    */
   apiInclude?: string[];
 
   /**
-   * Glob patterns for files that should be treated as static resources.
-   * Files(after matching `apiInclude`) matching these patterns will be served as static files.
-   * Defaults to all files if not provided.
-   * @example ['*.html', '*.css', '*.js'] - serve specific patterns as static files
+   * 视为静态资源的 glob 模式：未命中 apiInclude 且命中此处的文件按静态资源提供。
+   * 默认为全部文件。
+   * @example ['*.html', '*.css', '*.js']
    */
   staticInclude?: string[];
 
   /**
-   * Glob patterns for files that should be excluded.
-   * Files matching these patterns will never be served (neither as API nor static resource).
-   * Defaults to common exclusions like node_modules, .git, dist, etc.
+   * 排除的 glob 模式：命中者永远不提供（既不是 API 也不是静态资源）。
+   * 默认排除 node_modules、.git、dist 等常见目录。
    */
   exclude?: string[];
 
   /**
-   * HTTPS server configuration. If provided, the server will use HTTPS instead of HTTP.
-   * Both `key` and `cert` are required for HTTPS. `ca` is optional for certificate chains.
-   * Relative paths are resolved against `process.cwd()`.
+   * HTTPS 配置。提供后服务器改用 HTTPS；key 与 cert 必填，ca 可选（用于证书链）。
+   * 相对路径基于 process.cwd()。
    */
   https?: {
-    /**
-     * Path to the private key file (PEM format) or the key content as a string/buffer.
-     */
+    /** 私钥文件路径（PEM），或直接给出字符串/Buffer。 */
     key: string | Buffer;
-    /**
-     * Path to the certificate file (PEM format) or the certificate content as a string/buffer.
-     */
+    /** 证书文件路径（PEM），或直接给出字符串/Buffer。 */
     cert: string | Buffer;
-    /**
-     * Optional: Path to CA certificate file(s) or the CA content as a string/buffer/array.
-     * Used for intermediate certificates.
-     */
+    /** 可选：CA 证书文件路径或内容（字符串/Buffer/数组），用于中间证书。 */
     ca?: string | Buffer | Array<string | Buffer>;
   };
 
   /**
-   * Content-Security-Policy header value.
-   * Defaults to "default-src 'self'".
-   * Set to `false` to disable the CSP header entirely.
+   * Content-Security-Policy 头的值，默认 "default-src 'self'"；设为 false 则完全不发该头。
    * @example "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' https:"
    */
   csp?: string | false;
 }
 
 export interface NormalizedFluxionOptions {
-  /**
-   * It's absolute path to the directory where dynamic files will be stored. It always ends with `path.sep`.
-   */
+  /** 动态文件目录的绝对路径，始终以 path.sep 结尾。 */
   dir: string;
   host: string;
   port: number;
@@ -184,12 +140,10 @@ export interface NormalizedFluxionOptions {
     ca?: string | Buffer | Array<string | Buffer>;
   };
 
-  /**
-   * Content-Security-Policy header value, or `false` to disable the header.
-   */
+  /** CSP 头的值，或 false 表示不发送该头。 */
   csp: string | false;
 
-  // !security check
+  // ! 规范化标记，用于防止伪造已规范化的选项
   normalizedFlag: symbol;
 }
 
@@ -197,29 +151,21 @@ export interface FluxionContext {
   options: NormalizedFluxionOptions;
   logger: InternalFluxionLogger;
   router: FluxionRouter;
-  /**
-   * Modules loaded from `dir`, keyed by absolute path. Owned by the instance, so two `fluxion()` calls in
-   * one process do not share loaded code.
-   */
+  /** 从 dir 加载的模块，以绝对路径为键。归实例所有：同一进程内两次 fluxion() 不共享已加载代码。 */
   moduleCache: ModuleCache;
-  /**
-   * Aborted when the controller stops: in-flight middleware and handlers are abandoned and their responses
-   * are cut off.
-   */
+  /** 控制器停止时中止：在途的中间件和 handler 被放弃，响应被切断。 */
   signal: AbortSignal;
-  /** Abort {@link FluxionContext.signal}. Internal: called once by the controller's `stop`. */
+  /** 中止 {@link FluxionContext.signal}。内部使用：由控制器的 stop 调用一次。 */
   abort(): void;
 }
 
 /**
- * The handle `fluxion()` returns. Signal handling is the caller's job: bind `SIGINT` / `SIGTERM` yourself and
- * call {@link FluxionController.stop} when they arrive.
+ * fluxion() 返回的句柄。信号处理由调用方负责：自行监听 SIGINT / SIGTERM 并在其中调用 {@link FluxionController.stop}。
  */
 export interface FluxionController {
   /**
-   * Force every in-flight request to end: new connections stop being accepted, open sockets are destroyed,
-   * and any handler or middleware still running is abandoned (no response is written). Synchronous, and safe
-   * to call more than once.
+   * 强制结束所有在途请求：不再接受新连接，销毁现存 socket，
+   * 仍在运行的 handler/中间件被放弃（不写响应）。同步且可重复调用。
    */
   stop(): void;
 }
@@ -250,9 +196,7 @@ export type FluxionMiddleware<
 
 export type FluxionDisposer = () => Promise<void> | void;
 
-/**
- * Supported HTTP methods for FluxionModule
- */
+/** FluxionModule 支持的 HTTP 方法 */
 export type HTTPMethod =
   | 'GET'
   | 'POST'
@@ -266,34 +210,28 @@ export type HTTPMethod =
   | otherstring;
 
 export interface FluxionModule {
-  /**
-   * Main handler for an api
-   */
+  /** API 的主处理函数 */
   handler: FluxionHandler;
 
   /**
-   * Cleanup for the resources created by this module instance.
-   * It runs once the response for the request that loaded this instance has been sent.
-   * Optional — omit it when there is nothing to clean up.
+   * 清理该模块实例创建的资源，在触发它的请求响应发出后执行一次。
+   * 没有需要清理的东西时请省略。
    */
   disposer?: FluxionDisposer;
 
-  /**
-   * How many ms to wait until the request times out
-   */
+  /** 该模块 handler 的超时毫秒数 */
   handlerTimeoutMs?: number;
 
   /**
-   * Allowed HTTP methods for this module.
-   * If specified, only these methods will be accepted.
+   * 允许的 HTTP 方法；指定后只接受这些方法。
    * @example ['GET', 'POST']
    */
   methods?: HTTPMethod[];
 
   /**
-   * These functions will execute sequentially and be awaited.
+   * 这些函数会依次执行并被 await。
    *
-   * **Side Effect Accepted :** You can modify the arguments, and next middleware will use the modified version.
+   * **允许副作用：** 可以修改入参，后续中间件会看到修改后的版本。
    */
   middlewares?: FluxionMiddleware[];
 }
@@ -305,8 +243,6 @@ export interface FluxionModuleObject extends FluxionModule {
 export interface NormalizedModule extends FluxionModuleObject {
   absolutePath: string;
 
-  /**
-   * mtime from `fs.stat`
-   */
+  /** 来自 fs.stat 的 mtime */
   mtimeMs: number;
 }

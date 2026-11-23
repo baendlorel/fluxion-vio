@@ -15,19 +15,21 @@ import { parseCookie } from './cookie.js';
 import { HttpException } from './exceptions.js';
 
 /**
- * How a piece of middleware or handler work ended.
- * - `value`: it settled, and this is what it returned or threw;
- * - `timeout`: its own timeout fired first;
- * - `stopped`: the controller's abort signal fired first, so the response is already gone.
+ * 一段中间件/handler 工作的结局：
+ * - value：正常结束，附带返回值；
+ * - timeout：它自己的超时先到；
+ * - stopped：控制器的中止信号先到，响应已经不存在了。
  */
 type Outcome = { kind: 'value'; value: unknown } | { kind: 'timeout' } | { kind: 'stopped' };
 
+/** 正在执行的是模块的哪一部分，用来决定超时规则。 */
+type Phase = 'middleware' | 'handler';
+
 /**
- * Race a piece of handler work against a timeout and the controller's abort signal.
+ * 让一段 handler 工作和超时、中止信号赛跑。
  *
- * The work promise always gets a rejection handler. A failure that loses the race is no longer returned to
- * the request path (its socket is gone), so it is logged here; one that wins is re-thrown and reported by the
- * request path exactly like any other failure.
+ * 永远给 work 挂上 catch：输掉赛跑的异常不会再回到请求路径（socket 已断），只能在这里记日志；
+ * 赢了的异常会照常抛出，由请求路径统一上报。
  */
 async function raceWork(
   cx: FluxionContext,
@@ -35,8 +37,7 @@ async function raceWork(
   timeoutMs: number,
   m: NormalizedModule,
 ): Promise<Outcome> {
-  // Marked from inside the losing sides of the race, before they resolve, so the flag is already set when a
-  // late rejection arrives on the microtask queue.
+  // 由输掉赛跑的那一方在 resolve 之前置位，这样迟到的 rejection 进微任务时标记已经打好。
   const abandoned = { current: false };
 
   work.catch((e: unknown) => {
@@ -45,7 +46,7 @@ async function raceWork(
     }
   });
 
-  // Already stopping: do not start new work's timeout window, just report it.
+  // 已经在停止中：不再开新的超时窗口，直接报告。
   if (cx.signal.aborted) {
     return { kind: 'stopped' };
   }
@@ -72,9 +73,7 @@ async function raceWork(
 }
 
 /**
- * The timeout that applies to a piece of work, derived from the phase it runs in.
- * Middlewares have their own budget; API handlers may override the instance default; static resources use the
- * (much longer) static budget.
+ * 按阶段取超时：中间件有自己的预算；API handler 可覆盖实例默认值；静态资源用更长的静态预算。
  */
 const timeoutFor = (cx: FluxionContext, m: NormalizedModule, phase: Phase): number => {
   if (phase === 'middleware') {
@@ -85,18 +84,13 @@ const timeoutFor = (cx: FluxionContext, m: NormalizedModule, phase: Phase): numb
     : cx.options.staticResourceTimeoutMs;
 };
 
-/** Which part of a module is running, so the timeout rule can be picked without the caller knowing it. */
-type Phase = 'middleware' | 'handler';
-
-/** Run a piece of middleware or handler work with the timeout its phase implies. */
+/** 按阶段带超时地执行一段中间件或 handler 工作。 */
 const runPhase = (cx: FluxionContext, m: NormalizedModule, phase: Phase, work: Promise<unknown>): Promise<Outcome> =>
   raceWork(cx, work, timeoutFor(cx, m, phase), m);
 
-/** Run a module's disposer once the response has been sent.
- * Modules without a disposer are left untouched.
- */
+/** 响应发出后执行模块的 disposer；没有 disposer 的直接跳过。 */
 function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: NormalizedModule) {
-  // The module instance is shared by requests while its files are unchanged: the disposer runs once per response.
+  // 文件未变时模块实例被多个请求共享：每个响应各执行一次 disposer。
   if (typeof m.disposer !== 'function') {
     return;
   }
@@ -108,7 +102,7 @@ function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: N
   });
 }
 
-/** Build the request object handlers see. Pure: every field is derived from `req` and `url`. */
+/** 构造交给 handler 的请求对象。纯函数：每个字段都由 req 和 url 推导。 */
 function toFluxionRequest(req: http.IncomingMessage, url: URL): FluxionRequest {
   return {
     method: req.method ?? 'GET',
@@ -122,21 +116,18 @@ function toFluxionRequest(req: http.IncomingMessage, url: URL): FluxionRequest {
   };
 }
 
-/** Security headers applied to every response. */
+/** 给所有响应加安全头。 */
 function applySecurityHeaders(res: http.ServerResponse, csp: string | false): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
-  // Content-Security-Policy (user-configurable, header omitted when set to false)
+  // CSP 由选项控制，设为 false 时整条头都不发
   if (csp !== false) {
     res.setHeader('Content-Security-Policy', csp);
   }
 }
 
-/**
- * Log the response once it has been sent. The request snapshot is passed in rather than read back, so the
- * callback does not depend on later mutation of `normalized`.
- */
+/** 响应发出后记一条日志。请求快照是传进来的，回调不依赖后续对它的修改。 */
 function logResponse(
   cx: FluxionContext,
   res: http.ServerResponse,
@@ -166,7 +157,7 @@ function logResponse(
   cx.logger.core(o);
 }
 
-/** Run the middleware chain. Returns `true` when a middleware already produced the response or stopped it. */
+/** 依次执行中间件。返回 true 表示响应已经产生（或请求已被中止）。 */
 async function runMiddlewares(
   cx: FluxionContext,
   moduleCx: FluxionModuleContext,
@@ -197,7 +188,7 @@ async function runMiddlewares(
   return false;
 }
 
-/** Run the handler and write its result to the response. */
+/** 执行 handler，并把返回值写进响应。 */
 async function runHandler(
   cx: FluxionContext,
   moduleCx: FluxionModuleContext,
@@ -222,7 +213,7 @@ async function runHandler(
   }
 }
 
-/** Turn a thrown value into a response, without leaking internals. */
+/** 把抛出的值转成响应，且不泄漏内部细节。 */
 function reportFailure(cx: FluxionContext, res: http.ServerResponse, request: FluxionRequest, e: unknown): void {
   if (e instanceof HttpException) {
     cx.logger.error({ ...request, event: 'RequestFailed', error: e.message });
@@ -233,7 +224,7 @@ function reportFailure(cx: FluxionContext, res: http.ServerResponse, request: Fl
   safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
 }
 
-/** The full lifecycle of one request. */
+/** 单个请求的完整生命周期。 */
 async function handleRequest(
   cx: FluxionContext,
   moduleCx: FluxionModuleContext,
@@ -249,7 +240,7 @@ async function handleRequest(
   applySecurityHeaders(res, cx.options.csp);
 
   const start = performance.now();
-  // Re-bound once the body is parsed. The request object itself is never mutated: handlers get a finished value.
+  // body 解析完成后重新绑定；请求对象本身不会被原地修改，handler 拿到的永远是完整值。
   let request = toFluxionRequest(req, url);
   let bodyPreview: BodyPreview = { exists: false, bytes: 0, truncated: false };
   res.once('finish', () => logResponse(cx, res, request, bodyPreview, start));
@@ -261,7 +252,7 @@ async function handleRequest(
     request = { ...request, body: parsed.body };
     bodyPreview = parsed.preview;
 
-    // A stop may land while the body was being read.
+    // 读取 body 期间可能已经被 stop。
     if (cx.signal.aborted) {
       return;
     }
@@ -277,7 +268,7 @@ async function handleRequest(
       return;
     }
 
-    // Clean up this request's module instance after the response is sent.
+    // 响应发出后清理本次请求的模块实例。
     disposeAfterResponse(cx, res, m);
 
     if (await runMiddlewares(cx, moduleCx, m, request, req, res)) {
@@ -289,10 +280,7 @@ async function handleRequest(
   }
 }
 
-/**
- * The parts of `http.Server` / `https.Server` the controller needs. Both provide them, but `https.Server`
- * does not extend `http.Server`.
- */
+/** 控制器需要的 http.Server / https.Server 公共部分；后者并不继承前者。 */
 export interface ListeningServer {
   close(cb?: (err?: Error) => void): unknown;
   closeAllConnections(): void;
@@ -348,9 +336,7 @@ export function createServer(cx: FluxionContext): Promise<ListeningServer> {
         error: formatError(e),
       });
       if (listening) {
-        // Server encountered an error after binding — log and let the
-        // caller (PM2 / user code) decide how to recover instead of
-        // forcing process.exit(1) here.
+        // 绑定成功之后的错误只记录，交给上层（PM2 / 用户代码）决定如何恢复，不强制 exit。
         return;
       }
       reject(e);

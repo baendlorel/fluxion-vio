@@ -1,5 +1,6 @@
 import type { IncomingMessage } from 'node:http';
 
+/** 取真实客户端 IP，依次尝试 X-Forwarded-For、X-Real-IP、socket 地址。 */
 export function getRealIp(req: IncomingMessage): string {
   const forwardedFor = req.headersDistinct['x-forwarded-for'];
   if (forwardedFor) {
@@ -17,6 +18,7 @@ export function getRealIp(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? 'unknown';
 }
 
+/** 判断 Content-Type 是否属于可当文本处理的类型。 */
 export function isTextualContentType(contentType: string | undefined): boolean {
   if (contentType === undefined) {
     return false;

@@ -10,17 +10,15 @@ import { normalizeModule, selectModule } from '../common/injector.js';
 import { requireModule } from '../common/loader.js';
 
 /**
- * Resolve a request URL to the module that should handle it.
- * Nothing is registered: the file is looked up on every call. API modules are reloaded only when the file or one
- * of the files it imports has changed (mtime or size).
+ * 把请求 URL 解析成处理它的模块。
+ * 不做任何注册：每次调用都直接查文件。API 模块只在自身或它 import 的文件变更（mtime 或 size）时重新加载。
  */
 export type FluxionRouter = (url: URL) => Promise<NormalizedModule | undefined>;
 
 export type RouterContext = Pick<FluxionContext, 'options' | 'logger' | 'moduleCache'>;
 
 /**
- * Load an API file and attach its metadata. A file that exists but does not export a module is a server-side
- * mistake, so it throws instead of pretending the route is missing.
+ * 加载 API 文件并附上元信息。文件存在但没导出模块属于服务端错误，所以抛出异常而不是伪装成路由不存在。
  */
 const loadModule = (cx: RouterContext, absolutePath: string, stat: Stats): NormalizedModule => {
   const exports = requireModule(cx.moduleCache, cx.options, absolutePath);
@@ -39,18 +37,18 @@ export function createRouter(cx: RouterContext): FluxionRouter {
     const relativePath = url.pathname.replace(/^[/]+/, '').replace(/[/]+$/, '');
     const absolutePath = path.join(cx.options.dir, relativePath);
 
-    // ! Fail if the resolved path escapes the configured directory
+    // ! 解析后的路径逃出配置目录时直接拒绝
     const withinDir = path.relative(cx.options.dir, absolutePath);
     if (withinDir.startsWith('..') || path.isAbsolute(withinDir)) {
       return undefined;
     }
 
-    // Excluded files are never served
+    // 命中 exclude 的文件永远不提供
     if (cx.options.exclude.some((p) => path.matchesGlob(relativePath, p))) {
       return undefined;
     }
 
-    // The file must exist and be a regular file
+    // 必须是存在的普通文件
     const stat = await fs.stat(absolutePath).catch(() => undefined);
     if (!stat || !stat.isFile()) {
       return undefined;

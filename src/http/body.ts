@@ -4,6 +4,7 @@ import { isTextualContentType } from './headers.js';
 import { parseQuery } from './query.js';
 import { PayloadTooLargeException } from './exceptions.js';
 
+/** 请求体的日志预览：最多 8KB，二进制只记录大小。 */
 export interface BodyPreview {
   exists: boolean;
   value?: string;
@@ -56,6 +57,7 @@ function createPreview(
   };
 }
 
+/** 读取完整请求体，同时生成有上限的预览。 */
 async function readRequestBodyWithPreview(
   req: http.IncomingMessage,
   method: string,
@@ -103,7 +105,7 @@ async function readRequestBodyWithPreview(
       action();
     };
 
-    // Check content-length upfront, but still drain the request
+    // 先用 content-length 快速拒绝，但仍把请求读空以免连接卡住
     if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
       cleanup();
       req.resume();
@@ -173,6 +175,7 @@ async function readRequestBodyWithPreview(
   });
 }
 
+/** 读取并解析请求体，按 Content-Type 分派。GET/HEAD 不解析。 */
 export async function parseBody(
   req: http.IncomingMessage,
   method: string,

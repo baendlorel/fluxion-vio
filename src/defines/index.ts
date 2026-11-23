@@ -11,10 +11,10 @@ import { ModuleType } from '@/common/consts.js';
 
 export { defineFluxionOptions } from './options.js';
 
-/** A `[holds, message]` pair: the message is thrown when `holds` is false. */
+/** [是否成立, 错误信息] 二元组：不成立时抛出该信息。 */
 type Rule = readonly [holds: boolean, message: string];
 
-/** Throw the first failing rule's message. */
+/** 抛出第一条不成立的规则信息。 */
 const assert = (rules: readonly Rule[]): void => {
   const message = rules.find(([holds]) => !holds)?.[1];
   if (message !== undefined) {
@@ -23,14 +23,12 @@ const assert = (rules: readonly Rule[]): void => {
 };
 
 /**
- * Use handler function and optional disposer function to define a Fluxion module.
- * @param handler Main function that handles request and response instances
- * @param disposer Deal with resource cleanup once the response has been sent. Optional.
+ * 用 handler（和可选的 disposer）定义 Fluxion 模块。
+ * @param handler 处理请求与响应的主函数
+ * @param disposer 响应发出后的资源清理，可选
  */
 export function defineFluxionModule(handler: FluxionHandler, disposer?: FluxionDisposer): FluxionModuleObject;
-/**
- * Provides type safety for defining Fluxion modules.
- */
+/** 以对象形式定义模块，提供类型提示。 */
 export function defineFluxionModule(fluxionModule: FluxionModule): FluxionModuleObject;
 export function defineFluxionModule(
   a: FluxionModule | FluxionHandler,

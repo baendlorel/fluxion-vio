@@ -1,10 +1,13 @@
+/** 解析 req.url 时用的虚拟 base，仅用于拿到 pathname 与 searchParams。 */
 export const DUMMY_BASE_URL = 'http://fluxion.local';
 
+/** 内部标记值，用 Symbol 避免与用户返回值冲突。 */
 export const flags = Object.freeze({
   OptionsNormalized: Symbol('fluxion.options.normalized'),
   StaticHandled: Symbol('fluxion.router.StaticHandled'),
 });
 
+/** 静态资源扩展名到 Content-Type 的映射。 */
 export const STATIC_CONTENT_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -66,21 +69,21 @@ export const STATIC_CONTENT_TYPES: Record<string, string> = {
 };
 
 export enum HttpCode {
-  // 2xx Success
+  // 2xx 成功
   Ok = 200,
   Created = 201,
   Accepted = 202,
   NoContent = 204,
   PartialContent = 206,
 
-  // 3xx Redirection
+  // 3xx 重定向
   MovedPermanently = 301,
   Found = 302,
   NotModified = 304,
   TemporaryRedirect = 307,
   PermanentRedirect = 308,
 
-  // 4xx Client Error
+  // 4xx 客户端错误
   BadRequest = 400,
   Unauthorized = 401,
   Forbidden = 403,
@@ -95,7 +98,7 @@ export enum HttpCode {
   UnprocessableEntity = 422,
   TooManyRequests = 429,
 
-  // 5xx Server Error
+  // 5xx 服务端错误
   InternalServerError = 500,
   NotImplemented = 501,
   BadGateway = 502,

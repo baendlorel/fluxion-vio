@@ -1,8 +1,6 @@
 import { HttpCode } from '@/common/consts.js';
 
-/**
- * Base class for all HTTP exceptions
- */
+/** 所有 HTTP 异常的基类。 */
 export abstract class HttpException extends Error implements NodeJS.ErrnoException {
   errno?: number | undefined;
   code?: string | undefined;
@@ -15,10 +13,10 @@ export abstract class HttpException extends Error implements NodeJS.ErrnoExcepti
   }
 }
 
-// 4xx Client Error Exceptions
+// 4xx 客户端错误
 
 /**
- * 400 Bad Request - Malformed or invalid request
+ * 400 请求格式错误或非法
  */
 export class BadRequestException extends HttpException {
   constructor(message: string = 'Bad Request') {
@@ -27,7 +25,7 @@ export class BadRequestException extends HttpException {
 }
 
 /**
- * 401 Unauthorized - Authentication required or failed
+ * 401 需要认证或认证失败
  */
 export class UnauthorizedException extends HttpException {
   constructor(message: string = 'Unauthorized') {
@@ -36,7 +34,7 @@ export class UnauthorizedException extends HttpException {
 }
 
 /**
- * 403 Forbidden - Valid request but refused authorization
+ * 403 请求合法但未获授权
  */
 export class ForbiddenException extends HttpException {
   constructor(message: string = 'Forbidden') {
@@ -45,7 +43,7 @@ export class ForbiddenException extends HttpException {
 }
 
 /**
- * 404 Not Found - Resource does not exist
+ * 404 资源不存在
  */
 export class NotFoundException extends HttpException {
   constructor(message: string = 'Not Found') {
@@ -54,7 +52,7 @@ export class NotFoundException extends HttpException {
 }
 
 /**
- * 405 Method Not Allowed - HTTP method not supported for resource
+ * 405 该资源不支持此 HTTP 方法
  */
 export class MethodNotAllowedException extends HttpException {
   constructor(message: string = 'Method Not Allowed') {
@@ -63,7 +61,7 @@ export class MethodNotAllowedException extends HttpException {
 }
 
 /**
- * 406 Not Acceptable - Cannot generate acceptable response
+ * 406 无法生成可接受的响应
  */
 export class NotAcceptableException extends HttpException {
   constructor(message: string = 'Not Acceptable') {
@@ -72,7 +70,7 @@ export class NotAcceptableException extends HttpException {
 }
 
 /**
- * 408 Request Timeout - Client did not produce request within time
+ * 408 客户端未在规定时间内完成请求
  */
 export class RequestTimeoutException extends HttpException {
   constructor(message: string = 'Request Timeout') {
@@ -81,7 +79,7 @@ export class RequestTimeoutException extends HttpException {
 }
 
 /**
- * 409 Conflict - Request conflicts with current state
+ * 409 请求与当前状态冲突
  */
 export class ConflictException extends HttpException {
   constructor(message: string = 'Conflict') {
@@ -90,7 +88,7 @@ export class ConflictException extends HttpException {
 }
 
 /**
- * 410 Gone - Resource no longer available
+ * 410 资源已不再可用
  */
 export class GoneException extends HttpException {
   constructor(message: string = 'Gone') {
@@ -99,7 +97,7 @@ export class GoneException extends HttpException {
 }
 
 /**
- * 413 Payload Too Large - Request entity larger than limits
+ * 413 请求实体超过大小限制
  */
 export class PayloadTooLargeException extends HttpException {
   constructor(message: string = 'Payload Too Large') {
@@ -108,7 +106,7 @@ export class PayloadTooLargeException extends HttpException {
 }
 
 /**
- * 415 Unsupported Media Type - Requested format not supported
+ * 415 不支持的请求格式
  */
 export class UnsupportedMediaTypeException extends HttpException {
   constructor(message: string = 'Unsupported Media Type') {
@@ -117,7 +115,7 @@ export class UnsupportedMediaTypeException extends HttpException {
 }
 
 /**
- * 422 Unprocessable Entity - Syntactically correct but semantically erroneous
+ * 422 语法正确但语义错误
  */
 export class UnprocessableEntityException extends HttpException {
   constructor(message: string = 'Unprocessable Entity') {
@@ -126,7 +124,7 @@ export class UnprocessableEntityException extends HttpException {
 }
 
 /**
- * 429 Too Many Requests - Rate limit exceeded
+ * 429 超出频率限制
  */
 export class TooManyRequestsException extends HttpException {
   constructor(message: string = 'Too Many Requests') {
@@ -134,10 +132,10 @@ export class TooManyRequestsException extends HttpException {
   }
 }
 
-// 5xx Server Error Exceptions
+// 5xx 服务端错误
 
 /**
- * 500 Internal Server Error - Unexpected server condition
+ * 500 服务器出现意外状况
  */
 export class InternalServerErrorException extends HttpException {
   constructor(message: string = 'Internal Server Error') {
@@ -146,7 +144,7 @@ export class InternalServerErrorException extends HttpException {
 }
 
 /**
- * 501 Not Implemented - Server does not support functionality
+ * 501 服务器不支持该功能
  */
 export class NotImplementedException extends HttpException {
   constructor(message: string = 'Not Implemented') {
@@ -155,7 +153,7 @@ export class NotImplementedException extends HttpException {
 }
 
 /**
- * 502 Bad Gateway - Invalid response from upstream server
+ * 502 上游服务器返回了无效响应
  */
 export class BadGatewayException extends HttpException {
   constructor(message: string = 'Bad Gateway') {
@@ -164,7 +162,7 @@ export class BadGatewayException extends HttpException {
 }
 
 /**
- * 503 Service Unavailable - Server temporarily unavailable
+ * 503 服务暂时不可用
  */
 export class ServiceUnavailableException extends HttpException {
   constructor(message: string = 'Service Unavailable') {
@@ -173,7 +171,7 @@ export class ServiceUnavailableException extends HttpException {
 }
 
 /**
- * 504 Gateway Timeout - Upstream server timeout
+ * 504 上游服务器超时
  */
 export class GatewayTimeoutException extends HttpException {
   constructor(message: string = 'Gateway Timeout') {

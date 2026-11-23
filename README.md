@@ -12,6 +12,11 @@
 
 It is meant for **modest traffic** behind a trusted network: internal tools, admin panels, small APIs, webhooks, prototypes. It is **not** a security boundary and not built for high concurrency — for anything public, put a reverse proxy in front.
 
+## Design: functional style
+
+Vio is written in a deliberately functional style — functions and explicit data, not classes and hidden state:
+
+
 ## Install
 
 ```bash

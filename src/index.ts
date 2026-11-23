@@ -3,13 +3,10 @@ import { HttpCode } from './common/consts.js';
 
 export { fluxion, HttpCode };
 
-/**
- * Export fluxion version for users' debugging.
- * @version __VERSION__
- */
+/** 导出 fluxion 版本号，便于调试。@version __VERSION__ */
 export const VERSION = '__VERSION__';
 
-// Export all HTTP exceptions
+// 导出全部 HTTP 异常
 export {
   HttpException,
   BadRequestException,
@@ -44,5 +41,4 @@ export type {
   FluxionController,
 } from './types.js';
 
-// export { formatError } from './common/logger.js';
 export type { FluxionLogger, LogEntry, LogPayload, FluxionLoggerFn, LoggerOption } from './common/logger.js';

@@ -1,6 +1,7 @@
+/** 单次请求最多解析的 cookie 数，防止超长 Cookie 头。 */
 const MAX_COOKIE_KEYS = 100;
 
-/** A cookie value that is not valid percent-encoding is kept verbatim instead of failing the request. */
+/** 非法的百分号编码不再让整个请求失败，而是原样保留。 */
 const decode = (value: string): string => {
   try {
     return decodeURIComponent(value);
@@ -9,9 +10,7 @@ const decode = (value: string): string => {
   }
 };
 
-/**
- * Parse Cookie header string into an object
- */
+/** 把 Cookie 头解析成对象。 */
 export function parseCookie(cookieHeader: string | undefined): Record<string, string> {
   if (!cookieHeader) {
     return {};
@@ -31,9 +30,7 @@ export function parseCookie(cookieHeader: string | undefined): Record<string, st
     }, {});
 }
 
-/**
- * Serialize an object into a Cookie header string
- */
+/** 把名称、值和选项序列化成一条 Set-Cookie 字符串。 */
 export function serializeCookie(
   name: string,
   value: string,

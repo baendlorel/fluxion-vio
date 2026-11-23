@@ -1,11 +1,11 @@
 /**
- * For low version of Node.js that does not support `Promise.try`, we can implement it ourselves.
+ * 低版本 Node.js 没有 Promise.try 时的替代实现。
  *
- * Only for async functions.
+ * 仅适用于异步函数（含同步抛错）。
  */
 export function PromiseTry<T extends (...args: any[]) => any>(fn: T, ...args: Parameters<T>) {
   return new Promise<ReturnType<T>>((resolve, reject) => {
-    // in case `fn` throws synchronously, we catch it and reject the promise
+    // fn 同步抛错时也要转成 reject
     try {
       const r = fn(...args);
       if (r instanceof Promise) {
