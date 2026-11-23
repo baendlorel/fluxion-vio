@@ -1,5 +1,4 @@
 import type { NormalizedModule } from '@/types.js';
-import type { Stats } from 'node:fs';
 import { ModuleType } from './consts.js';
 
 /** 一个值不能用作 NormalizedModule 的原因。 */

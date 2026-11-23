@@ -12,7 +12,7 @@ import { safeSendJson } from './respond.js';
 import { parseBody, type BodyPreview } from './body.js';
 import { parseQuery } from './query.js';
 import { parseCookie } from './cookie.js';
-import { HttpException } from './exceptions.js';
+import { isHttpException } from './exceptions.js';
 
 /**
  * 一段中间件/handler 工作的结局：
@@ -215,7 +215,7 @@ async function runHandler(
 
 /** 把抛出的值转成响应，且不泄漏内部细节。 */
 function reportFailure(cx: FluxionContext, res: http.ServerResponse, request: FluxionRequest, e: unknown): void {
-  if (e instanceof HttpException) {
+  if (isHttpException(e)) {
     cx.logger.error({ ...request, event: 'RequestFailed', error: e.message });
     safeSendJson(res, { message: e.message }, e.errno);
     return;

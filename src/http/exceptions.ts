@@ -1,7 +1,17 @@
 import { HttpCode } from '@/common/consts.js';
 
-/** 所有 HTTP 异常的基类。 */
+const FLUXION_HTTP_EXCEPTION = Symbol.for('FLUXION_HTTP_EXCEPTION');
+
+/**
+ * 所有 HTTP 异常的基类。
+ *
+ * 动态文件会被编译成 CJS，因此它 require 到的是本包的 CJS 构建，而框架自身可能运行在 ESM 构建里——
+ * 两边的 class 是不同的对象，instanceof 会失效。这里改用全局唯一标记做判定，跨越模块实例。
+ */
 export abstract class HttpException extends Error implements NodeJS.ErrnoException {
+  /** 标记为 HTTP 异常，instanceof 失效时靠它识别。 */
+  readonly [FLUXION_HTTP_EXCEPTION] = true;
+
   errno?: number | undefined;
   code?: string | undefined;
 
@@ -11,6 +21,11 @@ export abstract class HttpException extends Error implements NodeJS.ErrnoExcepti
     this.errno = statusCode;
     this.code = code;
   }
+}
+
+/** 判断一个值是否为 HTTP 异常；不依赖 instanceof，跨 ESM/CJS 构建也能识别。 */
+export function isHttpException(e: unknown): e is HttpException {
+  return typeof e === 'object' && e !== null && FLUXION_HTTP_EXCEPTION in e;
 }
 
 // 4xx 客户端错误

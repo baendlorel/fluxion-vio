@@ -46,8 +46,9 @@
     "pub": "tsx ./scripts/index.ts --publish",
     "check": "tsc --noEmit -p tsconfig.build.json",
     "e2e": "tsx tests/e2e/behavior.ts && tsx tests/e2e/output.ts",
-    "test": "vitest",
-    "lint": "oxlint ."
+    "test": "vitest run",
+    "lint": "oxlint .",
+    "test:watch": "vitest"
   },
   "license": "MIT",
   "devDependencies": {
