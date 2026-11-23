@@ -34,156 +34,193 @@ function disposeAfterResponse(cx: FluxionContext, res: http.ServerResponse, m: N
   });
 }
 
-export function createServer(cx: FluxionContext): Promise<http.Server | https.Server> {
-  const moduleCx: FluxionModuleContext = Object.freeze({ logger: cx.logger });
+/** Build the request object handlers see. Pure: every field is derived from `req` and `url`. */
+function toFluxionRequest(req: http.IncomingMessage, url: URL): FluxionRequest {
+  return {
+    method: req.method ?? 'GET',
+    ip: getRealIp(req),
+    url,
+    query: parseQuery(url.searchParams),
+    body: {},
+    headers: req.headers,
+    cookie: parseCookie(req.headers.cookie as string | undefined),
+    meta: {},
+  };
+}
 
-  const requestHandler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
-    const method = req.method ?? 'GET';
-    const ip = getRealIp(req);
-    const url = toURL(req.url);
-    if (url === undefined) {
-      safeSendJson(res, { message: 'Bad Request: req.url is undefined' }, HttpCode.BadRequest);
+/** Security headers applied to every response. */
+function applySecurityHeaders(res: http.ServerResponse, csp: string | false): void {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  // Content-Security-Policy (user-configurable, header omitted when set to false)
+  if (csp !== false) {
+    res.setHeader('Content-Security-Policy', csp);
+  }
+}
+
+/**
+ * Log the response once it has been sent. The request snapshot is passed in rather than read back, so the
+ * callback does not depend on later mutation of `normalized`.
+ */
+function logResponse(
+  cx: FluxionContext,
+  res: http.ServerResponse,
+  request: FluxionRequest,
+  bodyPreview: BodyPreview,
+  start: number,
+): void {
+  const o: Record<string, unknown> = {
+    event: 'response',
+    method: request.method,
+    ip: request.ip,
+    path: request.url.pathname,
+    status: res.statusCode,
+    duration: (performance.now() - start).toFixed(4),
+  };
+
+  if (Object.keys(request.query).length > 0) {
+    o.query = request.query;
+  }
+
+  if (bodyPreview.exists) {
+    o.body = bodyPreview.value;
+    o.bodyBytes = bodyPreview.bytes;
+    o.bodyTruncated = bodyPreview.truncated;
+  }
+
+  cx.logger.core(o);
+}
+
+/** Run the middleware chain. Returns `true` when a middleware already produced the response. */
+async function runMiddlewares(
+  cx: FluxionContext,
+  moduleCx: FluxionModuleContext,
+  m: NormalizedModule,
+  request: FluxionRequest,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<boolean> {
+  for (const middleware of m.middlewares ?? []) {
+    const result = await waiter(
+      PromiseTry(middleware, request, moduleCx, req, res),
+      cx.options.middlewareTimeoutMs,
+      flags.MiddlewareTimeout,
+    );
+
+    if (result === flags.MiddlewareTimeout) {
+      cx.logger.warn({ event: 'MiddlewareTimeout', method: request.method, ip: request.ip });
+      safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
+      return true;
+    }
+    if (res.writableEnded) {
+      return true;
+    }
+    if (res.headersSent) {
+      res.end();
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Run the handler and write its result to the response. */
+async function runHandler(
+  cx: FluxionContext,
+  moduleCx: FluxionModuleContext,
+  m: NormalizedModule,
+  request: FluxionRequest,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const timeoutMs =
+    m.type === ModuleType.Api
+      ? (m.handlerTimeoutMs ?? cx.options.handlerTimeoutMs)
+      : cx.options.staticResourceTimeoutMs;
+
+  const result = await waiter(
+    PromiseTry(m.handler, request, moduleCx, req, res),
+    timeoutMs,
+    flags.HandlerTimeout,
+  );
+
+  if (result === flags.HandlerTimeout) {
+    cx.logger.warn({ event: 'HandlerTimeout', method: request.method, ip: request.ip });
+    safeSendJson(res, { message: 'Handler timed out' }, HttpCode.InternalServerError);
+    return;
+  }
+
+  if (result !== flags.StaticHandled) {
+    safeSendJson(res, result);
+  }
+}
+
+/** Turn a thrown value into a response, without leaking internals. */
+function reportFailure(cx: FluxionContext, res: http.ServerResponse, request: FluxionRequest, e: unknown): void {
+  if (e instanceof HttpException) {
+    cx.logger.error({ ...request, event: 'RequestFailed', error: e.message });
+    safeSendJson(res, { message: e.message }, e.errno);
+    return;
+  }
+  cx.logger.error({ ...request, event: 'RequestFailed', error: formatError(e) });
+  safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
+}
+
+/** The full lifecycle of one request. */
+async function handleRequest(
+  cx: FluxionContext,
+  moduleCx: FluxionModuleContext,
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const url = toURL(req.url);
+  if (url === undefined) {
+    safeSendJson(res, { message: 'Bad Request: req.url is undefined' }, HttpCode.BadRequest);
+    return;
+  }
+
+  applySecurityHeaders(res, cx.options.csp);
+
+  const start = performance.now();
+  // Re-bound once the body is parsed. The request object itself is never mutated: handlers get a finished value.
+  let request = toFluxionRequest(req, url);
+  let bodyPreview: BodyPreview = { exists: false, bytes: 0, truncated: false };
+  res.once('finish', () => logResponse(cx, res, request, bodyPreview, start));
+
+  cx.logger.core({ event: 'request', method: request.method, ip: request.ip, path: url.pathname });
+
+  try {
+    const parsed = await parseBody(req, request.method, cx.options.maxRequestBytes);
+    request = { ...request, body: parsed.body };
+    bodyPreview = parsed.preview;
+
+    const m = await cx.router(url);
+    if (!m) {
+      safeSendJson(res, { message: 'Not Found' }, HttpCode.NotFound);
       return;
     }
 
-    const normalized: FluxionRequest = {
-      method,
-      ip,
-      url,
-      query: parseQuery(url.searchParams),
-      body: {},
-      headers: req.headers,
-      cookie: parseCookie(req.headers.cookie as string | undefined),
-      meta: {},
-    };
-
-    // Security headers for all responses
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    // Content-Security-Policy (user-configurable, header omitted when set to false)
-    if (cx.options.csp !== false) {
-      res.setHeader('Content-Security-Policy', cx.options.csp);
+    if (m.methods && !m.methods.includes(request.method)) {
+      safeSendJson(res, { message: 'Method Not Allowed' }, HttpCode.MethodNotAllowed);
+      return;
     }
 
-    let bodyPreview: BodyPreview = {
-      exists: false,
-      bytes: 0,
-      truncated: false,
-    };
+    // Clean up this request's module instance after the response is sent.
+    disposeAfterResponse(cx, res, m);
 
-    cx.logger.core({ event: 'request', method, ip, path: url.pathname });
-
-    const start = performance.now();
-    res.once('finish', () => {
-      const o: Record<string, unknown> = {
-        event: 'response',
-        method,
-        ip,
-        path: url.pathname,
-        status: res.statusCode,
-        duration: (performance.now() - start).toFixed(4),
-      };
-
-      if (Object.keys(normalized.query).length > 0) {
-        o.query = normalized.query;
-      }
-
-      if (bodyPreview.exists) {
-        o.body = bodyPreview.value;
-        o.bodyBytes = bodyPreview.bytes;
-        o.bodyTruncated = bodyPreview.truncated;
-      }
-
-      cx.logger.core(o);
-    });
-
-    // * Start request handling
-    try {
-      const parsed = await parseBody(req, normalized.method, cx.options.maxRequestBytes);
-      normalized.body = parsed.body;
-      bodyPreview = parsed.preview;
-
-      const m = await cx.router(url);
-      if (!m) {
-        safeSendJson(res, { message: 'Not Found' }, HttpCode.NotFound);
-        return;
-      }
-
-      if (req.method && m.methods && !m.methods.includes(req.method)) {
-        safeSendJson(res, { message: 'Method Not Allowed' }, HttpCode.MethodNotAllowed);
-        return;
-      }
-
-      // Clean up this request's module instance after the response is sent.
-      disposeAfterResponse(cx, res, m);
-
-      const timeoutMs =
-        m.type === ModuleType.Api
-          ? (m.handlerTimeoutMs ?? cx.options.handlerTimeoutMs)
-          : cx.options.staticResourceTimeoutMs;
-
-      // Middleware execution
-      if (m.middlewares) {
-        for (let i = 0; i < m.middlewares.length; i++) {
-          const result = await waiter(
-            PromiseTry(m.middlewares[i], normalized, moduleCx, req, res),
-            cx.options.middlewareTimeoutMs,
-            flags.MiddlewareTimeout,
-          );
-
-          if (result === flags.MiddlewareTimeout) {
-            cx.logger.warn({
-              event: 'MiddlewareTimeout',
-              method: normalized.method,
-              ip: normalized.ip,
-            });
-            safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
-            return;
-          }
-          if (res.writableEnded) {
-            return;
-          }
-          if (res.headersSent) {
-            res.end();
-            return;
-          }
-        }
-      }
-
-      const result = await waiter(
-        PromiseTry(m.handler, normalized, moduleCx, req, res),
-        timeoutMs,
-        flags.HandlerTimeout,
-      );
-
-      if (result === flags.HandlerTimeout) {
-        cx.logger.warn({ event: 'HandlerTimeout', method: normalized.method, ip: normalized.ip });
-        safeSendJson(res, { message: 'Handler timed out' }, HttpCode.InternalServerError);
-        return;
-      }
-
-      if (result !== flags.StaticHandled) {
-        safeSendJson(res, result);
-      }
-    } catch (e) {
-      if (e instanceof HttpException) {
-        cx.logger.error({
-          ...normalized,
-          event: 'RequestFailed',
-          error: e.message,
-        });
-        safeSendJson(res, { message: e.message }, e.errno);
-      } else {
-        cx.logger.error({
-          ...normalized,
-          event: 'RequestFailed',
-          error: formatError(e),
-        });
-        safeSendJson(res, { message: 'Internal Server Error' }, HttpCode.InternalServerError);
-      }
+    if (await runMiddlewares(cx, moduleCx, m, request, req, res)) {
+      return;
     }
-  };
+    await runHandler(cx, moduleCx, m, request, req, res);
+  } catch (e) {
+    reportFailure(cx, res, request, e);
+  }
+}
+
+export function createServer(cx: FluxionContext): Promise<http.Server | https.Server> {
+  const moduleCx: FluxionModuleContext = Object.freeze({ logger: cx.logger });
+  const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse) =>
+    handleRequest(cx, moduleCx, req, res);
 
   const server = cx.options.https
     ? https.createServer(

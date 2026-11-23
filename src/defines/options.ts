@@ -61,26 +61,42 @@ function normalizeHttpsOptions(https: FluxionOptions['https']): NormalizedFluxio
   return result;
 }
 
+/** A `[holds, message]` pair: the message is thrown when `holds` is false. */
+type Rule = readonly [holds: boolean, message: string];
+
+/** Return the first failing rule's message, or `undefined` when every rule holds. */
+const firstViolation = (rules: readonly Rule[]): string | undefined => rules.find(([holds]) => !holds)?.[1];
+
+const DEFAULT_EXCLUDE = [
+  '**/node_modules/**',
+  '**/.git/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/.vscode/**',
+  '**/.idea/**',
+  '**/*.log',
+  '**/.DS_Store',
+  '**/coverage/**',
+  '**/.nyc_output/**',
+  '**/*.tmp',
+  '**/*.temp',
+];
+
+const INCLUDE_REMOVED = [
+  'The "include" option has been removed. Please use:',
+  '  - "apiInclude" for API handler patterns (default: ["**/*.ts"])',
+  '  - "staticInclude" for static resource patterns (default: ["**/*"])',
+  'Example migration:',
+  '  OLD: { include: ["**/*.ts", "**/*.js"], apiInclude: ["**/*.ts"] }',
+  '  NEW: { apiInclude: ["**/*.ts"], staticInclude: ["**/*.js"] }',
+].join('\n');
+
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every((item) => typeof item === 'string');
+
 /**
  * Normalize options and create necessary resources like the dynamic directory and logger.
  */
 export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOptions {
-  if (typeof o !== 'object' || o === null || Array.isArray(o)) {
-    throw new FluxionError('FluxionOptions must be an object');
-  }
-
-  // Check for deprecated 'include' option
-  if ('include' in o) {
-    throw new FluxionError(
-      'The "include" option has been removed. Please use:\n' +
-        '  - "apiInclude" for API handler patterns (default: ["**/*.ts"])\n' +
-        '  - "staticInclude" for static resource patterns (default: ["**/*"])\n' +
-        'Example migration:\n' +
-        '  OLD: { include: ["**/*.ts", "**/*.js"], apiInclude: ["**/*.ts"] }\n' +
-        '  NEW: { apiInclude: ["**/*.ts"], staticInclude: ["**/*.js"] }',
-    );
-  }
-
   const {
     dir: rawDir,
     host,
@@ -92,83 +108,41 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     maxRequestBytes = 8_000_000,
     apiInclude = ['**/*.ts'],
     staticInclude = ['**/*'],
-    exclude = [
-      '**/node_modules/**',
-      '**/.git/**',
-      '**/dist/**',
-      '**/build/**',
-      '**/.vscode/**',
-      '**/.idea/**',
-      '**/*.log',
-      '**/.DS_Store',
-      '**/coverage/**',
-      '**/.nyc_output/**',
-      '**/*.tmp',
-      '**/*.temp',
-    ],
+    exclude = DEFAULT_EXCLUDE,
     https,
     csp = "default-src 'self'",
-    restartMemoryMB = false,
     logOutputFile: rawLogOutputFile,
   } = o as FluxionOptions;
 
   const port = userPort;
-
   const logger = o.logger ?? 'json-line';
-  if (logger !== 'json-line' && typeof logger !== 'function') {
-    throw new FluxionError(
-      `Invalid logger option, Must be 'json-line' or a custom logger function (write a one-line logger yourself)`,
-    );
+
+  const violation = firstViolation([
+    [typeof o === 'object' && o !== null && !Array.isArray(o), 'FluxionOptions must be an object'],
+    [!(typeof o === 'object' && o !== null && 'include' in o), INCLUDE_REMOVED],
+    [logger === 'json-line' || typeof logger === 'function', `Invalid logger option, Must be 'json-line' or a custom logger function (write a one-line logger yourself)`],
+    [typeof rawDir === 'string', 'FluxionOptions.dir must be a string'],
+    [typeof target === 'string' || isStringArray(target), 'FluxionOptions.target must be a string or an array of strings'],
+    [typeof host === 'string', 'FluxionOptions.host must be a string'],
+    [Number.isSafeInteger(handlerTimeoutMs) && handlerTimeoutMs > 100, 'FluxionOptions.handlerTimeoutMs must be an integer greater than 100'],
+    [Number.isSafeInteger(middlewareTimeoutMs) && middlewareTimeoutMs > 100, 'FluxionOptions.middlewareTimeoutMs must be an integer greater than 100'],
+    [typeof port === 'number' && Number.isSafeInteger(port), 'FluxionOptions.port must be a positive integer'],
+    [port > 1 && port <= 65535, 'FluxionOptions.port must be 1 ~ 65535'],
+    [typeof maxRequestBytes === 'number' && maxRequestBytes > 0 && Number.isSafeInteger(maxRequestBytes), 'FluxionOptions.maxRequestBytes must be a positive integer'],
+    [csp === false || typeof csp === 'string', 'FluxionOptions.csp must be a string or false'],
+    [rawLogOutputFile === undefined || (typeof rawLogOutputFile === 'string' && rawLogOutputFile.length > 0), 'FluxionOptions.logOutputFile must be a non-empty string path'],
+    [isStringArray(apiInclude), 'FluxionOptions.apiInclude must be an array of glob strings'],
+    [isStringArray(staticInclude), 'FluxionOptions.staticInclude must be an array of glob strings'],
+    [isStringArray(exclude), 'FluxionOptions.exclude must be an array of glob strings'],
+  ]);
+
+  if (violation !== undefined) {
+    throw new FluxionError(violation);
   }
 
-  if (typeof rawDir !== 'string') {
-    throw new FluxionError('FluxionOptions.dir must be a string');
-  }
   // Ends with a separator, so "is this file under dir" is a plain `startsWith`
   const resolvedDir = path.resolve(process.cwd(), rawDir);
   const dir = resolvedDir.endsWith(path.sep) ? resolvedDir : resolvedDir + path.sep;
-
-  if (typeof target !== 'string' && !(Array.isArray(target) && target.every((t) => typeof t === 'string'))) {
-    throw new FluxionError('FluxionOptions.target must be a string or an array of strings');
-  }
-
-  if (typeof host !== 'string') {
-    throw new FluxionError('FluxionOptions.host must be a string');
-  }
-
-  if (!Number.isSafeInteger(handlerTimeoutMs) || handlerTimeoutMs <= 100) {
-    throw new FluxionError('FluxionOptions.handlerTimeoutMs must be an integer greater than 100');
-  }
-
-  if (!Number.isSafeInteger(middlewareTimeoutMs) || middlewareTimeoutMs <= 100) {
-    throw new FluxionError('FluxionOptions.middlewareTimeoutMs must be an integer greater than 100');
-  }
-
-  if (typeof port !== 'number' || !Number.isSafeInteger(port)) {
-    throw new FluxionError('FluxionOptions.port must be a positive integer');
-  }
-
-  if (port <= 1 || port > 65535) {
-    throw new FluxionError('FluxionOptions.port must be 1 ~ 65535');
-  }
-
-  if (typeof maxRequestBytes !== 'number' || maxRequestBytes <= 0 || !Number.isSafeInteger(maxRequestBytes)) {
-    throw new FluxionError('FluxionOptions.maxRequestBytes must be a positive integer');
-  }
-
-  if (csp !== false && typeof csp !== 'string') {
-    throw new FluxionError('FluxionOptions.csp must be a string or false');
-  }
-
-  if (restartMemoryMB !== false) {
-    if (typeof restartMemoryMB !== 'number' || !Number.isFinite(restartMemoryMB) || restartMemoryMB <= 0) {
-      throw new FluxionError('FluxionOptions.restartMemoryMB must be a positive number of MB, or false');
-    }
-  }
-
-  if (rawLogOutputFile !== undefined && (typeof rawLogOutputFile !== 'string' || rawLogOutputFile.length === 0)) {
-    throw new FluxionError('FluxionOptions.logOutputFile must be a non-empty string path');
-  }
   // Relative paths follow `dir` and `https`: resolved against the cwd.
   const logOutputFile = rawLogOutputFile === undefined ? undefined : path.resolve(process.cwd(), rawLogOutputFile);
 
@@ -192,7 +166,6 @@ export function defineFluxionOptions(o: FluxionOptions): NormalizedFluxionOption
     exclude,
     https: normalizeHttpsOptions(https),
     csp,
-    restartMemoryMB,
     normalizedFlag: flags.OptionsNormalized,
   };
 

@@ -1,5 +1,6 @@
 import type http from 'node:http';
 import type { FluxionLogger, InternalFluxionLogger, LoggerOption } from '@/common/logger.js';
+import type { ModuleCache } from '@/common/loader.js';
 import type { FluxionRouter } from './router/index.js';
 import type { ModuleType } from './common/consts.js';
 
@@ -103,8 +104,6 @@ export interface FluxionOptions {
    * process prints after `fluxion()` opens the file ends up here — including
    * `console.log` calls from your handlers. Output written before that call
    * has already gone to the terminal.
-   *
-   * On an in-place restart the same file is reopened in append mode.
    * @example './logs/server.log'
    */
   logOutputFile?: string;
@@ -160,16 +159,6 @@ export interface FluxionOptions {
    * @example "default-src 'self'; script-src 'self' 'unsafe-inline'; img-src 'self' https:"
    */
   csp?: string | false;
-
-  /**
-   * Restart the process in place (`process.execve`) once its resident memory
-   * (RSS) exceeds this many **MB**. Disabled by default.
-   *
-   * Requires Node.js ≥ 22.15 on Linux or macOS. On older runtimes the option
-   * is ignored with a `RestartDisabled` warning at startup.
-   * @example 512
-   */
-  restartMemoryMB?: number | false;
 }
 
 export interface NormalizedFluxionOptions {
@@ -200,12 +189,6 @@ export interface NormalizedFluxionOptions {
    */
   csp: string | false;
 
-  /**
-   * Resident-memory threshold in MB that triggers an in-place restart, or
-   * `false` when memory-triggered restarts are disabled.
-   */
-  restartMemoryMB: number | false;
-
   // !security check
   normalizedFlag: symbol;
 }
@@ -214,6 +197,11 @@ export interface FluxionContext {
   options: NormalizedFluxionOptions;
   logger: InternalFluxionLogger;
   router: FluxionRouter;
+  /**
+   * Modules loaded from `dir`, keyed by absolute path. Owned by the instance, so two `fluxion()` calls in
+   * one process do not share loaded code.
+   */
+  moduleCache: ModuleCache;
 }
 
 export interface FluxionModuleContext {

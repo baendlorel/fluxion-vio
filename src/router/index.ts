@@ -1,10 +1,13 @@
 import type { FluxionContext, NormalizedModule } from '../types.js';
+import type { Stats } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createReadStream } from 'node:fs';
 
 import { ModuleType, STATIC_CONTENT_TYPES, flags } from '../common/consts.js';
-import { loadFluxionModule } from '../common/injector.js';
+import { FluxionError } from '../common/error.js';
+import { normalizeModule, selectModule } from '../common/injector.js';
+import { requireModule } from '../common/loader.js';
 
 /**
  * Resolve a request URL to the module that should handle it.
@@ -13,7 +16,25 @@ import { loadFluxionModule } from '../common/injector.js';
  */
 export type FluxionRouter = (url: URL) => Promise<NormalizedModule | undefined>;
 
-export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): FluxionRouter {
+export type RouterContext = Pick<FluxionContext, 'options' | 'logger' | 'moduleCache'>;
+
+/**
+ * Load an API file and attach its metadata. A file that exists but does not export a module is a server-side
+ * mistake, so it throws instead of pretending the route is missing.
+ */
+const loadModule = (cx: RouterContext, absolutePath: string, stat: Stats): NormalizedModule => {
+  const exports = requireModule(cx.moduleCache, cx.options, absolutePath);
+  const { module, rejection } = selectModule(exports);
+  if (module === undefined) {
+    cx.logger.error({ event: 'InvalidModule', url: absolutePath, error: rejection });
+    throw new FluxionError(
+      `Invalid handler module '${absolutePath}', make sure it satisfies defineFluxionModule(...) helper`,
+    );
+  }
+  return normalizeModule(module, absolutePath, stat);
+};
+
+export function createRouter(cx: RouterContext): FluxionRouter {
   return async (url) => {
     const relativePath = url.pathname.replace(/^[/]+/, '').replace(/[/]+$/, '');
     const absolutePath = path.join(cx.options.dir, relativePath);
@@ -36,7 +57,7 @@ export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): Fl
     }
 
     if (cx.options.apiInclude.some((p) => path.matchesGlob(relativePath, p))) {
-      return loadFluxionModule(cx, absolutePath, stat);
+      return loadModule(cx, absolutePath, stat);
     }
 
     if (cx.options.staticInclude.some((p) => path.matchesGlob(relativePath, p))) {

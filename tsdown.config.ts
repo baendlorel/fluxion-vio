@@ -23,8 +23,5 @@ export default defineConfig([
     target: 'node24',
     treeshake: !isDev,
     plugins: plugins(),
-    deps: {
-      onlyBundle: ['type-narrow'],
-    },
   },
 ]);

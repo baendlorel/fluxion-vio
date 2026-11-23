@@ -1,3 +1,14 @@
+const MAX_COOKIE_KEYS = 100;
+
+/** A cookie value that is not valid percent-encoding is kept verbatim instead of failing the request. */
+const decode = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
 /**
  * Parse Cookie header string into an object
  */
@@ -6,25 +17,18 @@ export function parseCookie(cookieHeader: string | undefined): Record<string, st
     return {};
   }
 
-  const cookies: Record<string, string> = {};
-  const pairs = cookieHeader.split(';');
-  let count = 0;
-  const MAX_COOKIE_KEYS = 100;
-
-  for (const pair of pairs) {
-    if (count >= MAX_COOKIE_KEYS) {
-      break;
-    }
-    const [key, ...valueParts] = pair.split('=');
-    if (!key) continue;
-
-    const trimmedKey = key.trim();
-    const value = valueParts.join('=').trim();
-    cookies[trimmedKey] = decodeURIComponent(value);
-    count++;
-  }
-
-  return cookies;
+  return cookieHeader
+    .split(';')
+    .filter((pair) => pair.trim().length > 0)
+    .slice(0, MAX_COOKIE_KEYS)
+    .reduce<Record<string, string>>((cookies, pair) => {
+      const [key, ...valueParts] = pair.split('=');
+      const trimmedKey = key?.trim();
+      if (!trimmedKey) {
+        return cookies;
+      }
+      return { ...cookies, [trimmedKey]: decode(valueParts.join('=').trim()) };
+    }, {});
 }
 
 /**

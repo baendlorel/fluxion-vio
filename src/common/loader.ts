@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import type { NormalizedFluxionOptions } from '@/types.js';
 
 /**
- * A module loaded by `FluxionLoader`. `deps` holds the instances it required, so a stale dependency shows up
+ * A module loaded by the loader. `deps` holds the instances it required, so a stale dependency shows up
  * even when the cache has already been refilled.
  */
 export interface LoadedModule {
@@ -20,9 +20,12 @@ export interface LoadedModule {
 }
 
 /**
- * Every loaded module, keyed by absolute path, shared by all fluxion instances. Delete an entry to force a reload.
+ * Every loaded module, keyed by absolute path. It is passed in explicitly instead of living at module
+ * scope, so the cache is owned by the fluxion instance that created it.
  */
-export const moduleCache = new Map<string, LoadedModule>();
+export type ModuleCache = Map<string, LoadedModule>;
+
+export type LoaderOptions = Pick<NormalizedFluxionOptions, 'dir' | 'target'>;
 
 const NODE_MODULES = `${sep}node_modules${sep}`;
 
@@ -38,6 +41,14 @@ const JS_TO_TS: Record<string, string[]> = {
 
 const isBare = (specifier: string) => !specifier.startsWith('.') && !isAbsolute(specifier);
 
+const isFile = (path: string) => {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
 const isChanged = (m: LoadedModule) => {
   try {
     const s = statSync(m.filename);
@@ -48,18 +59,10 @@ const isChanged = (m: LoadedModule) => {
   }
 };
 
-const isFile = (path: string) => {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-};
-
 /**
  * Find the real file behind an extension-less or `.js`-style path, the way esbuild would.
  */
-const findFile = (base: string) => {
+const findFile = (base: string): string | undefined => {
   if (isFile(base)) {
     return base;
   }
@@ -83,6 +86,174 @@ const findFile = (base: string) => {
   }
 };
 
+const isHot = (file: string, dir: string) => {
+  const ext = extname(file);
+  return file.startsWith(dir) && !file.includes(NODE_MODULES) && (COMPILED.has(ext) || ext === '.json');
+};
+
+/**
+ * `shadowed` switches `__dirname` / `__filename` from function parameters to `define` constants, for sources that
+ * declare one at the top level and would otherwise collide with the parameter. Only then, because a `define`d name
+ * is not a binding: `eval('__dirname')` would stop seeing it and assigning to it would leak to the global object.
+ */
+const compile = (file: string, target: LoaderOptions['target'], shadowed: boolean): string => {
+  const define: Record<string, string> = {
+    'import.meta.url': JSON.stringify(pathToFileURL(file).href),
+    'import.meta.filename': JSON.stringify(file),
+    'import.meta.dirname': JSON.stringify(dirname(file)),
+  };
+  if (shadowed) {
+    define.__dirname = JSON.stringify(dirname(file));
+    define.__filename = JSON.stringify(file);
+  }
+
+  const { outputFiles } = buildSync({
+    entryPoints: [file],
+    bundle: false,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    target,
+    sourcemap: 'inline',
+    sourcesContent: false,
+    logLevel: 'silent',
+    // `import(x)` becomes `require(x)`, because a vm function has no way to run a native dynamic import
+    supported: { 'dynamic-import': false },
+    define,
+  });
+  return outputFiles[0].text;
+};
+
+/**
+ * Parameters first, so `eval('__dirname')` still sees it and assigning to it stays local. A source declaring its
+ * own `__dirname` cannot be compiled with that parameter, so on that exact error the file is recompiled with
+ * `define` instead. Compiling runs nothing, so a failed attempt has no side effects.
+ */
+const buildFunction = (file: string, target: LoaderOptions['target']) => {
+  const params = ['exports', 'require', 'module', '__filename', '__dirname'];
+  try {
+    return compileFunction(compile(file, target, false), params, { filename: file });
+  } catch (e) {
+    const redeclared = e instanceof SyntaxError && /__dirname|__filename/.test(e.message);
+    if (!redeclared) {
+      throw e;
+    }
+    return compileFunction(compile(file, target, true), params.slice(0, 3), { filename: file });
+  }
+};
+
+/** A `require` carrying the properties Node's own `require` exposes. */
+interface ModuleRequire {
+  (specifier: string): any;
+  resolve(specifier: string): string;
+  cache: NodeJS.Dict<NodeModule>;
+}
+
+/**
+ * The only closure left per module, and it is made once per fresh load: it has to remember which module is asking.
+ */
+const createModuleRequire = (
+  from: LoadedModule,
+  cache: ModuleCache,
+  options: LoaderOptions,
+): ModuleRequire => {
+  const native = createRequire(from.filename);
+  const locate = (specifier: string) =>
+    isBare(specifier) ? undefined : findFile(resolve(dirname(from.filename), specifier));
+
+  return Object.assign(
+    (specifier: string) => {
+      const file = locate(specifier);
+      if (file === undefined) {
+        // builtins, packages and anything that cannot be found; the native require reports the latter
+        return native(specifier);
+      }
+      if (!isHot(file, options.dir)) {
+        return native(file);
+      }
+      const dep = loadFile(file, cache, options);
+      // Also recorded for requires made long after loading (`import()` inside a function)
+      from.deps.set(file, dep);
+      return dep.exports;
+    },
+    {
+      resolve: (specifier: string) => locate(specifier) ?? native.resolve(specifier),
+      cache: native.cache,
+    },
+  );
+};
+
+const evaluate = (file: string, mod: LoadedModule, cache: ModuleCache, options: LoaderOptions): void => {
+  const ext = extname(file);
+  if (ext === '.json') {
+    mod.exports = JSON.parse(readFileSync(file, 'utf8'));
+    return;
+  }
+  if (!COMPILED.has(ext)) {
+    throw new Error(`FluxionLoader: unsupported file type "${ext}" (${file})`);
+  }
+
+  const fn = buildFunction(file, options.target);
+  fn.call(mod.exports, mod.exports, createModuleRequire(mod, cache, options), mod, file, dirname(file));
+};
+
+const loadFresh = (file: string, cache: ModuleCache, options: LoaderOptions): LoadedModule => {
+  // Read before the file is, so an edit in between is seen as a change next time instead of being missed
+  const { mtimeMs, size } = statSync(file);
+  const mod: LoadedModule = { id: file, filename: file, exports: {}, mtimeMs, size, deps: new Map() };
+  // Registered before it runs, so a circular import sees the partial exports instead of looping
+  cache.set(file, mod);
+  try {
+    evaluate(file, mod, cache, options);
+  } catch (e) {
+    cache.delete(file);
+    throw e;
+  }
+  return mod;
+};
+
+const collectChain = (root: LoadedModule): Set<LoadedModule> => {
+  const chain = new Set([root]);
+  // a Set visits what is added while iterating, and the `has` check built into it stops cycles
+  for (const m of chain) {
+    for (const dep of m.deps.values()) {
+      chain.add(dep);
+    }
+  }
+  return chain;
+};
+
+const anyStale = (cache: ModuleCache, chain: Set<LoadedModule>): boolean => {
+  for (const m of chain) {
+    if (cache.get(m.filename) !== m || isChanged(m)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Return the cached module if nothing in its chain changed, otherwise drop the chain and load it fresh.
+ */
+const loadFile = (file: string, cache: ModuleCache, options: LoaderOptions): LoadedModule => {
+  const cached = cache.get(file);
+  if (cached === undefined) {
+    return loadFresh(file, cache, options);
+  }
+
+  const chain = collectChain(cached);
+  if (!anyStale(cache, chain)) {
+    return cached;
+  }
+  for (const m of chain) {
+    // A newer instance of the same path may have been loaded by someone else meanwhile: that one is fine, keep it
+    if (cache.get(m.filename) === m) {
+      cache.delete(m.filename);
+    }
+  }
+  return loadFresh(file, cache, options);
+};
+
 /**
  * Load a ts/js file under `options.dir`. Local files it imports are loaded the same way, each compiled by esbuild on
  * its own; node_modules, builtins and files outside `dir` go through the native `require`.
@@ -93,168 +264,5 @@ const findFile = (base: string) => {
  *
  * Synchronous, because `require` is. `require()` returns `exports`, so `export default x` is `result.default`.
  */
-export class FluxionLoader {
-  private readonly opts: Pick<NormalizedFluxionOptions, 'dir' | 'target'>;
-
-  constructor(options: Pick<NormalizedFluxionOptions, 'dir' | 'target'>) {
-    this.opts = options;
-  }
-
-  /**
-   * `shadowed` switches `__dirname` / `__filename` from function parameters to `define` constants, for sources that
-   * declare one at the top level and would otherwise collide with the parameter. Only then, because a `define`d name
-   * is not a binding: `eval('__dirname')` would stop seeing it and assigning to it would leak to the global object.
-   */
-  private compile(file: string, shadowed: boolean) {
-    const define: Record<string, string> = {
-      'import.meta.url': JSON.stringify(pathToFileURL(file).href),
-      'import.meta.filename': JSON.stringify(file),
-      'import.meta.dirname': JSON.stringify(dirname(file)),
-    };
-    if (shadowed) {
-      define.__dirname = JSON.stringify(dirname(file));
-      define.__filename = JSON.stringify(file);
-    }
-
-    const { outputFiles } = buildSync({
-      entryPoints: [file],
-      bundle: false,
-      write: false,
-      platform: 'node',
-      format: 'cjs',
-      target: this.opts.target,
-      sourcemap: 'inline',
-      sourcesContent: false,
-      logLevel: 'silent',
-      // `import(x)` becomes `require(x)`, because a vm function has no way to run a native dynamic import
-      supported: { 'dynamic-import': false },
-      define,
-    });
-    return outputFiles[0].text;
-  }
-
-  require(absolutePath: string): any {
-    return this.load(resolve(absolutePath)).exports;
-  }
-
-  private isHot(file: string) {
-    const ext = extname(file);
-    return file.startsWith(this.opts.dir) && !file.includes(NODE_MODULES) && (COMPILED.has(ext) || ext === '.json');
-  }
-
-  /**
-   * Return the cached module if nothing in its chain changed, otherwise drop the chain and load it fresh.
-   */
-  private load(file: string): LoadedModule {
-    const cached = moduleCache.get(file);
-    if (cached === undefined) {
-      return this.loadFresh(file);
-    }
-
-    const chain = this.collectChain(cached);
-    if (!this.anyStale(chain)) {
-      return cached;
-    }
-    for (const m of chain) {
-      // A newer instance of the same path may have been loaded by someone else meanwhile: that one is fine, keep it
-      if (moduleCache.get(m.filename) === m) {
-        moduleCache.delete(m.filename);
-      }
-    }
-    return this.loadFresh(file);
-  }
-
-  private collectChain(root: LoadedModule) {
-    const chain = new Set([root]);
-    // a Set visits what is added while iterating, and the `has` check built into it stops cycles
-    for (const m of chain) {
-      for (const dep of m.deps.values()) {
-        chain.add(dep);
-      }
-    }
-    return chain;
-  }
-
-  private anyStale(chain: Set<LoadedModule>) {
-    for (const m of chain) {
-      if (moduleCache.get(m.filename) !== m || isChanged(m)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private loadFresh(file: string): LoadedModule {
-    // Read before the file is, so an edit in between is seen as a change next time instead of being missed
-    const { mtimeMs, size } = statSync(file);
-    const mod: LoadedModule = { id: file, filename: file, exports: {}, mtimeMs, size, deps: new Map() };
-    // Registered before it runs, so a circular import sees the partial exports instead of looping
-    moduleCache.set(file, mod);
-    try {
-      this.evaluate(file, mod);
-    } catch (e) {
-      moduleCache.delete(file);
-      throw e;
-    }
-    return mod;
-  }
-
-  private evaluate(file: string, mod: LoadedModule) {
-    const ext = extname(file);
-    if (ext === '.json') {
-      mod.exports = JSON.parse(readFileSync(file, 'utf8'));
-      return;
-    }
-    if (!COMPILED.has(ext)) {
-      throw new Error(`FluxionLoader: unsupported file type "${ext}" (${file})`);
-    }
-
-    const fn = this.compileFunction(file);
-    fn.call(mod.exports, mod.exports, this.createModuleRequire(mod), mod, file, dirname(file));
-  }
-
-  /**
-   * Parameters first, so `eval('__dirname')` still sees it and assigning to it stays local. A source declaring its
-   * own `__dirname` cannot be compiled with that parameter, so on that exact error the file is recompiled with
-   * `define` instead. Compiling runs nothing, so a failed attempt has no side effects.
-   */
-  private compileFunction(file: string) {
-    const params = ['exports', 'require', 'module', '__filename', '__dirname'];
-    try {
-      return compileFunction(this.compile(file, false), params, { filename: file });
-    } catch (e) {
-      const redeclared = e instanceof SyntaxError && /__dirname|__filename/.test(e.message);
-      if (!redeclared) {
-        throw e;
-      }
-      return compileFunction(this.compile(file, true), params.slice(0, 3), { filename: file });
-    }
-  }
-
-  /**
-   * The only closure left per module, and it is made once per fresh load: it has to remember which module is asking.
-   */
-  private createModuleRequire(from: LoadedModule) {
-    const native = createRequire(from.filename);
-    const locate = (specifier: string) =>
-      isBare(specifier) ? undefined : findFile(resolve(dirname(from.filename), specifier));
-
-    const req = (specifier: string) => {
-      const file = locate(specifier);
-      if (file === undefined) {
-        // builtins, packages and anything that cannot be found; the native require reports the latter
-        return native(specifier);
-      }
-      if (!this.isHot(file)) {
-        return native(file);
-      }
-      const dep = this.load(file);
-      // Also recorded for requires made long after loading (`import()` inside a function)
-      from.deps.set(file, dep);
-      return dep.exports;
-    };
-    req.resolve = (specifier: string) => locate(specifier) ?? native.resolve(specifier);
-    req.cache = native.cache;
-    return req;
-  }
-}
+export const requireModule = (cache: ModuleCache, options: LoaderOptions, absolutePath: string): any =>
+  loadFile(resolve(absolutePath), cache, options).exports;

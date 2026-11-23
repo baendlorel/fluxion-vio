@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
 /**
  * Send everything written to `process.stdout` / `process.stderr` (so `console.*` too) to `filePath`, appending.
  *
- * Writes are synchronous: nothing is buffered, so there is nothing to flush before `process.exit` or `process.execve`.
+ * Writes are synchronous: nothing is buffered, so there is nothing to flush before `process.exit`.
  */
 export async function redirectOutput(filePath: string): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true });

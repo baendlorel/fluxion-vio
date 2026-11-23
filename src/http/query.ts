@@ -1,21 +1,17 @@
+/**
+ * Fold the parameters into an object of `string | string[]`: a key seen once stays a string, a repeated key
+ * becomes an array in first-seen order.
+ */
 export function parseQuery(searchParams: URLSearchParams): Record<string, string | string[]> {
-  const query: Record<string, string | string[]> = {};
-
-  for (const [key, value] of searchParams.entries()) {
+  return [...searchParams.entries()].reduce<Record<string, string | string[]>>((query, [key, value]) => {
     const existing = query[key];
 
     if (existing === undefined) {
-      query[key] = value;
-      continue;
+      return { ...query, [key]: value };
     }
-
     if (Array.isArray(existing)) {
-      existing.push(value);
-      continue;
+      return { ...query, [key]: [...existing, value] };
     }
-
-    query[key] = [existing, value];
-  }
-
-  return query;
+    return { ...query, [key]: [existing, value] };
+  }, {});
 }
