@@ -6,7 +6,7 @@ import { createReadStream } from 'node:fs';
 
 import { ModuleType, STATIC_CONTENT_TYPES, flags } from '../common/consts.js';
 import { FluxionError } from '../common/error.js';
-import { normalizeModule, selectModule } from '../common/injector.js';
+import { selectModule } from '../common/injector.js';
 import { requireModule } from '../common/loader.js';
 
 /**
@@ -29,7 +29,11 @@ const loadModule = (cx: RouterContext, absolutePath: string, stat: Stats): Norma
       `Invalid handler module '${absolutePath}', make sure it satisfies defineFluxionModule(...) helper`,
     );
   }
-  return normalizeModule(module, absolutePath, stat);
+
+  // 附上元信息，避免不必要的复制内存开销
+  module.absolutePath = absolutePath;
+  module.mtimeMs = stat.mtimeMs;
+  return module;
 };
 
 export function createRouter(cx: RouterContext): FluxionRouter {
@@ -50,7 +54,7 @@ export function createRouter(cx: RouterContext): FluxionRouter {
 
     // 必须是存在的普通文件
     const stat = await fs.stat(absolutePath).catch(() => undefined);
-    if (!stat || !stat.isFile()) {
+    if (!stat?.isFile()) {
       return undefined;
     }
 
