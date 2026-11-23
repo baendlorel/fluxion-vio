@@ -1,10 +1,10 @@
 import type { FluxionContext, NormalizedModule } from '../types.js';
-import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { minimatch } from 'minimatch';
-import { ModuleType, STATIC_CONTENT_TYPES, flags } from '@/common/consts.js';
-import { loadFluxionModule } from '@/common/injector.js';
+import { createReadStream } from 'node:fs';
+
+import { ModuleType, STATIC_CONTENT_TYPES, flags } from '../common/consts.js';
+import { loadFluxionModule } from '../common/injector.js';
 
 /**
  * Resolve a request URL to the module that should handle it.
@@ -25,7 +25,7 @@ export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): Fl
     }
 
     // Excluded files are never served
-    if (cx.options.exclude.some((p) => minimatch(relativePath, p))) {
+    if (cx.options.exclude.some((p) => path.matchesGlob(relativePath, p))) {
       return undefined;
     }
 
@@ -35,11 +35,11 @@ export function createRouter(cx: Pick<FluxionContext, 'options' | 'logger'>): Fl
       return undefined;
     }
 
-    if (cx.options.apiInclude.some((p) => minimatch(relativePath, p))) {
+    if (cx.options.apiInclude.some((p) => path.matchesGlob(relativePath, p))) {
       return loadFluxionModule(cx, absolutePath, stat);
     }
 
-    if (cx.options.staticInclude.some((p) => minimatch(relativePath, p))) {
+    if (cx.options.staticInclude.some((p) => path.matchesGlob(relativePath, p))) {
       return makeStaticResource(absolutePath);
     }
 

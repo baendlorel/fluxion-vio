@@ -8,6 +8,9 @@ import { defineFluxionOptions } from './defines/options.js';
 import { createServer } from './http/server.js';
 import { createRouter } from './router/index.js';
 
+// TODO 为了更加接近原生的php行为，还可以采用进程运行法，把spawn的tsx的stdio捕获后，完成返回。
+// 类似于const result = execSync('tsx your-script.ts', { stdio: 'pipe' }); 然后让接口返回result.
+
 /**
  * Creates a fluxion-vio server instance.
  * @package Fluxion Vio
